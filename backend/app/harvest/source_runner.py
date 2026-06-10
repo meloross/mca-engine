@@ -132,12 +132,16 @@ def _run_ucc(
     dry_run: bool,
 ) -> SourceRunResult:
     queries = funder_queries[: max(1, min(policy.max_pages_per_run, target))]
-    records = run_authorized_secured_party_queries(adapter, queries)
+    records = (
+        adapter.run_recent_downloads(target=target)
+        if isinstance(adapter, FloridaUccLiveAdapter)
+        else run_authorized_secured_party_queries(adapter, queries)
+    )
     if not records:
         return SourceRunResult(
             source_code=policy.source_code,
             status="skipped",
-            message="No authorized live UCC fetcher configured or no records found.",
+            message="No authorized live UCC download/search records found.",
             metadata={"queries_attempted": len(queries)},
         )
     source = source_for_live_policy(

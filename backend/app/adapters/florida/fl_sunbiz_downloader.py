@@ -19,6 +19,7 @@ from app.config import settings
 from app.models import BusinessEntity, LeadSignal
 
 FL_SUNBIZ_DOWNLOADS_URL = "https://dos.fl.gov/sunbiz/other-services/data-downloads/"
+USER_AGENT = "MCA Legal Signal Engine local demo; contact: admin@example.local"
 
 PageFetcher = Callable[[str], str]
 FileFetcher = Callable[[str], bytes]
@@ -154,7 +155,11 @@ class FloridaSunbizDownloader:
     def _fetch_page(self, url: str) -> str:
         if self.page_fetcher:
             return self.page_fetcher(url)
-        with httpx.Client(timeout=30.0, follow_redirects=True) as client:
+        with httpx.Client(
+            timeout=30.0,
+            follow_redirects=True,
+            headers={"User-Agent": USER_AGENT},
+        ) as client:
             response = client.get(url)
             response.raise_for_status()
             return response.text
@@ -162,7 +167,11 @@ class FloridaSunbizDownloader:
     def _fetch_file(self, url: str) -> bytes:
         if self.file_fetcher:
             return self.file_fetcher(url)
-        with httpx.Client(timeout=60.0, follow_redirects=True) as client:
+        with httpx.Client(
+            timeout=60.0,
+            follow_redirects=True,
+            headers={"User-Agent": USER_AGENT},
+        ) as client:
             response = client.get(url)
             response.raise_for_status()
             return response.content
