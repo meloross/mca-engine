@@ -9,6 +9,7 @@ from sqlalchemy.schema import CreateTable
 from app.models import Base
 
 EXPECTED_TABLES = {
+    "id_sequences",
     "sources",
     "ingestion_runs",
     "raw_artifacts",
@@ -56,6 +57,10 @@ def test_required_unique_indexes_exist() -> None:
             ("signal_type", "state", "normalized_business_name", "signal_date", "funder_name"),
         ),
         "mca_funders": ("uq_mca_funders_normalized_name", ("normalized_name",)),
+        "id_sequences": (
+            "uq_id_sequences_type_scope_date",
+            ("sequence_type", "scope", "date_key"),
+        ),
     }
 
     for table_name, (index_name, column_names) in expected.items():
@@ -68,6 +73,14 @@ def test_required_unique_indexes_exist() -> None:
         assert next(
             index for index in Base.metadata.tables[table_name].indexes if index.name == index_name
         ).unique
+
+
+def test_reference_and_batch_columns_are_required() -> None:
+    assert not Base.metadata.tables["lead_signals"].c.lead_reference_id.nullable
+    assert not Base.metadata.tables["lead_signals"].c.batch_number.nullable
+    assert not Base.metadata.tables["ingestion_runs"].c.batch_number.nullable
+    assert not Base.metadata.tables["form_leads"].c.form_lead_ref_id.nullable
+    assert not Base.metadata.tables["lead_deliveries"].c.delivery_id.nullable
 
 
 def test_source_access_method_enum_values_match_contract() -> None:

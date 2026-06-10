@@ -45,8 +45,13 @@ def test_csv_export_creates_expected_headers() -> None:
         export_format="csv",
     )
     header = result.content.decode("utf-8-sig").splitlines()[0].split(",")
+    first_row = result.content.decode("utf-8-sig").splitlines()[1].split(",")
 
     assert header == PUBLIC_SIGNAL_COLUMNS
+    assert "lead_reference_id" in header
+    assert "batch_number" in header
+    assert first_row[0] == "MCA-NY-20260610-000001"
+    assert first_row[1] == "BATCH-NY-20260610-001"
     assert result.row_count == 1
 
 
@@ -69,6 +74,8 @@ def test_xlsx_export_creates_expected_sheets(tmp_path: Path) -> None:
     assert workbook.sheetnames == ["Signals", "Summary", "Export Metadata"]
     assert workbook["Signals"].freeze_panes == "A2"
     assert workbook["Signals"].auto_filter.ref is not None
+    assert workbook["Signals"]["A2"].value == "MCA-NY-20260610-000001"
+    assert workbook["Signals"]["B2"].value == "BATCH-NY-20260610-001"
 
 
 def test_high_value_state_and_min_score_filters() -> None:
@@ -156,8 +163,8 @@ def test_cli_export_command_writes_file(
 def test_api_file_response_content_types(monkeypatch: MonkeyPatch) -> None:
     timestamp = datetime(2026, 6, 10, 14, 30, tzinfo=UTC)
     fake_csv = ExportResult(
-        content=b"signal_id\n",
-        filename="mca_signals_NY_A_PLUS_A_2026-06-10_143000.csv",
+        content=b"lead_reference_id,batch_number\n",
+        filename="mca_signals_NY_BATCH-NY-20260610-001_20260610_143000.csv",
         media_type="text/csv",
         row_count=1,
         export_timestamp=timestamp,
@@ -165,7 +172,7 @@ def test_api_file_response_content_types(monkeypatch: MonkeyPatch) -> None:
     )
     fake_xlsx = ExportResult(
         content=b"PK\x03\x04",
-        filename="mca_form_leads_ALL_A_PLUS_A_2026-06-10_143000.xlsx",
+        filename="mca_opt_in_leads_BATCH-FORM-20260610-001_20260610_143000.xlsx",
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         row_count=1,
         export_timestamp=timestamp,
@@ -229,6 +236,12 @@ def _signal_fixture(
     )
     signal = LeadSignal(
         id=signal_id,
+        lead_reference_id=f"MCA-{state}-20260610-000001",
+        batch_number=f"BATCH-{state}-20260610-001",
+        batch_date=date(2026, 6, 10),
+        source_category=SourceType.COURT_NEW_CASES.value,
+        source_name=source.name,
+        source_captured_at=datetime(2026, 6, 10, tzinfo=UTC),
         signal_type=SignalType.LITIGATION_NEW_CASE,
         state=state,
         county=case.county,

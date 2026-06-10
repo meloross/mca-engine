@@ -72,3 +72,10 @@ class SuppressionType(StrEnum):
     EMAIL = "email"
     CASE_NUMBER = "case_number"
     DOMAIN = "domain"
+
+
+class SequenceType(StrEnum):
+    BATCH = "batch"
+    LEAD_REFERENCE = "lead_reference"
+    FORM_LEAD = "form_lead"
+    DELIVERY = "delivery"

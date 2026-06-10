@@ -15,6 +15,7 @@ from app.api.schemas import (
     SignalReviewRequest,
 )
 from app.db import get_session
+from app.ids import next_delivery_id
 from app.models import (
     AuditLog,
     BuyerAccount,
@@ -138,6 +139,8 @@ def deliver_signal(
         raise HTTPException(status_code=400, detail="Buyer account is inactive.")
 
     delivery = LeadDelivery(
+        delivery_id=next_delivery_id(session),
+        batch_number=signal.batch_number,
         lead_signal_id=signal.id,
         buyer_account_id=buyer.id,
         delivery_method=DeliveryMethod(body.delivery_method),

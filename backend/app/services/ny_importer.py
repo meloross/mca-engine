@@ -15,6 +15,7 @@ from app.adapters.new_york import NewYorkUccAdapter, NyscefNewCasesAdapter
 from app.classifiers import classify_text
 from app.compliance import normalize_business_name
 from app.config import settings
+from app.ids import next_batch_number, next_lead_reference_id
 from app.models import (
     AccessMethod,
     ArtifactType,
@@ -135,7 +136,7 @@ async def import_mock_ny_to_db(session: Session) -> dict[str, int]:
         elif payload.record_type == "ucc_filing":
             source_entity_id = _upsert_ucc(session, payload, source, artifact)
 
-        if _upsert_signal(session, payload, source, source_entity_id):
+        if _upsert_signal(session, payload, source, runs[str(source.id)], source_entity_id):
             created_signals += 1
         else:
             updated_signals += 1
@@ -300,8 +301,18 @@ def _get_or_create_source(
 
 
 def _create_ingestion_run(session: Session, source: Source) -> IngestionRun:
+    batch_date = date.today()
     run = IngestionRun(
-        source=source, run_type="mock", status="running", started_at=datetime.now(UTC)
+        source=source,
+        batch_number=next_batch_number(session, source.state, batch_date),
+        batch_date=batch_date,
+        import_mode="mock",
+        adapter_name=source.name,
+        query_filter_used="mock import",
+        operator="system",
+        run_type="mock",
+        status="running",
+        started_at=datetime.now(UTC),
     )
     session.add(run)
     session.flush()
@@ -333,6 +344,9 @@ def _get_or_create_raw_artifact(
         captured_at=captured_at,
         artifact_metadata={"access_method": "mock"},
     )
+    if run.raw_artifact_path is None:
+        run.raw_artifact_path = artifact_path
+        run.raw_artifact_hash = raw_artifact.sha256_hash
     session.add(raw_artifact)
     session.flush()
     cache[key] = raw_artifact
@@ -414,6 +428,7 @@ def _upsert_signal(
     session: Session,
     payload: SignalPayload,
     source: Source,
+    run: IngestionRun,
     source_entity_id: UUID | None,
 ) -> bool:
     signal = payload.signal
@@ -428,6 +443,16 @@ def _upsert_signal(
     )
     created = existing is None
     lead_signal = existing or LeadSignal(
+        lead_reference_id=next_lead_reference_id(
+            session,
+            signal["state"],
+            signal["signal_date"],
+        ),
+        batch_number=run.batch_number,
+        batch_date=run.batch_date,
+        source_category=source.source_type.value,
+        source_name=source.name,
+        source_captured_at=payload.captured_at,
         signal_type=SignalType(signal["signal_type"]),
         state=signal["state"],
         normalized_business_name=signal["normalized_business_name"],
@@ -449,6 +474,12 @@ def _upsert_signal(
     lead_signal.exclusion_reason = signal.get("exclusion_reason")
     lead_signal.compliance_flags = _string_list(signal.get("compliance_flags"))
     lead_signal.source_url = signal["source_url"]
+    if not lead_signal.batch_number:
+        lead_signal.batch_number = run.batch_number
+    lead_signal.batch_date = lead_signal.batch_date or run.batch_date
+    lead_signal.source_category = source.source_type.value
+    lead_signal.source_name = source.name
+    lead_signal.source_captured_at = payload.captured_at
     if payload.record_type == "case":
         lead_signal.case_id = source_entity_id
     elif payload.record_type == "ucc_filing":

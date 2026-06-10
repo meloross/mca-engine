@@ -20,6 +20,8 @@ def test_health_and_openapi_include_review_and_dashboard_routes() -> None:
     assert "/signals/{signal_id}/deliver" in openapi["paths"]
     assert "/lead-form/mca-defense" in openapi["paths"]
     assert "/admin/form-leads/{form_lead_id}/route" in openapi["paths"]
+    assert "/admin/sync/google-sheets/all" in openapi["paths"]
+    assert "/admin/sync/google-sheets/status" in openapi["paths"]
     assert "/analytics/summary" in openapi["paths"]
 
 
@@ -56,6 +58,8 @@ def test_dashboard_signals_page_has_filters_and_a_plus_link() -> None:
         [
             {
                 "id": "signal-1",
+                "lead_reference_id": "MCA-FL-20260610-000001",
+                "batch_number": "BATCH-FL-20260610-001",
                 "business_name": "Biscayne Bistro LLC",
                 "state": "FL",
                 "county": "Miami-Dade",
@@ -65,6 +69,12 @@ def test_dashboard_signals_page_has_filters_and_a_plus_link() -> None:
                 "signal_type": "litigation_new_case",
                 "status": "new",
                 "signal_date": "2026-06-07",
+                "source_name": "FL Demo Source",
+                "source_url": "https://example.test/source",
+                "source_captured_at": "2026-06-10T00:00:00+00:00",
+                "master_sheet_sync_status": "not_synced",
+                "exported_to_master_sheet": False,
+                "master_sheet_synced_at": None,
             }
         ],
         {"state": "FL", "grade": "A_PLUS"},
@@ -79,6 +89,8 @@ def test_dashboard_signal_detail_contains_review_delivery_and_explanation() -> N
     html = _signal_detail_page(
         {
             "id": "signal-1",
+            "lead_reference_id": "MCA-FL-20260610-000001",
+            "batch_number": "BATCH-FL-20260610-001",
             "business_name": "Biscayne Bistro LLC",
             "title": "New FL MCA litigation signal",
             "grade": "A_PLUS",

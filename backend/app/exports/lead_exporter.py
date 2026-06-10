@@ -29,6 +29,8 @@ CSV_MEDIA_TYPE = "text/csv"
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 PUBLIC_SIGNAL_COLUMNS = [
+    "lead_reference_id",
+    "batch_number",
     "signal_id",
     "grade",
     "score",
@@ -67,6 +69,9 @@ PUBLIC_SIGNAL_COLUMNS = [
 ]
 
 FORM_LEAD_COLUMNS = [
+    "form_lead_ref_id",
+    "linked_lead_reference_id",
+    "batch_number",
     "form_lead_id",
     "grade",
     "score",
@@ -126,7 +131,13 @@ def export_signals_bytes(
     )
     return ExportResult(
         content=content,
-        filename=build_export_filename("mca_signals", filters, export_format, timestamp),
+        filename=build_export_filename(
+            "mca_signals",
+            filters,
+            export_format,
+            timestamp,
+            rows=rows,
+        ),
         media_type=_media_type(export_format),
         row_count=len(rows),
         export_timestamp=timestamp,
@@ -154,7 +165,7 @@ def export_form_leads_bytes(
     )
     return ExportResult(
         content=content,
-        filename=build_export_filename("mca_form_leads", filters, export_format, timestamp),
+        filename=build_form_lead_export_filename(export_format, timestamp, rows=rows),
         media_type=_media_type(export_format),
         row_count=len(rows),
         export_timestamp=timestamp,
@@ -220,11 +231,24 @@ def build_export_filename(
     filters: ExportFilters,
     export_format: ExportFormat,
     timestamp: datetime,
+    *,
+    rows: list[dict[str, object]] | None = None,
 ) -> str:
-    state_label = "_".join(filters.states) if filters.states else "ALL"
-    value_label = "A_PLUS_A" if filters.only_high_value else (filters.grade or "ALL")
-    stamp = timestamp.strftime("%Y-%m-%d_%H%M%S")
-    return f"{prefix}_{state_label}_{value_label}_{stamp}.{export_format}"
+    state_label = _state_scope(filters, rows or [])
+    batch_label = _batch_scope(rows or [])
+    stamp = timestamp.strftime("%Y%m%d_%H%M%S")
+    return f"{prefix}_{state_label}_{batch_label}_{stamp}.{export_format}"
+
+
+def build_form_lead_export_filename(
+    export_format: ExportFormat,
+    timestamp: datetime,
+    *,
+    rows: list[dict[str, object]],
+) -> str:
+    batch_label = _batch_scope(rows)
+    stamp = timestamp.strftime("%Y%m%d_%H%M%S")
+    return f"mca_opt_in_leads_{batch_label}_{stamp}.{export_format}"
 
 
 def _signal_statement(filters: ExportFilters) -> Select[tuple[LeadSignal]]:
@@ -332,6 +356,8 @@ def _signal_row(session: Session, signal: LeadSignal) -> dict[str, object]:
     raw_artifact = _source_raw_artifact(session, case=case, ucc=ucc)
     keyword_hits = _keyword_hits(session, case=case, ucc=ucc)
     return {
+        "lead_reference_id": signal.lead_reference_id,
+        "batch_number": signal.batch_number,
         "signal_id": str(signal.id),
         "grade": signal.grade.value,
         "score": signal.score,
@@ -368,9 +394,12 @@ def _signal_row(session: Session, signal: LeadSignal) -> dict[str, object]:
         "keyword_hits": keyword_hits,
         "compliance_flags": signal.compliance_flags,
         "exclusion_reason": public_export_value(signal.exclusion_reason),
-        "source_name": source.name if source else None,
+        "source_name": signal.source_name or (source.name if source else None),
         "source_url": signal.source_url,
-        "source_captured_at": _datetime_value(raw_artifact.captured_at if raw_artifact else None),
+        "source_captured_at": _datetime_value(
+            signal.source_captured_at
+            or (raw_artifact.captured_at if raw_artifact else None)
+        ),
         "created_at": _datetime_value(signal.created_at),
         "updated_at": _datetime_value(signal.updated_at),
     }
@@ -388,6 +417,9 @@ def _form_lead_row(session: Session, form_lead: FormLead) -> dict[str, object]:
         else NO_CONSENT_REDACTED
     )
     return {
+        "form_lead_ref_id": form_lead.form_lead_ref_id,
+        "linked_lead_reference_id": form_lead.linked_lead_reference_id,
+        "batch_number": form_lead.batch_number,
         "form_lead_id": str(form_lead.id),
         "grade": form_lead.grade.value,
         "score": form_lead.score,
@@ -537,3 +569,23 @@ def _datetime_value(value: object) -> str | None:
 
 def _decimal_value(value: Decimal | None) -> str | None:
     return str(value) if value is not None else None
+
+
+def _state_scope(filters: ExportFilters, rows: list[dict[str, object]]) -> str:
+    if filters.states:
+        return "".join(filters.states)
+    states = sorted({str(row["state"]) for row in rows if row.get("state")})
+    if len(states) == 1:
+        return states[0]
+    if states:
+        return "".join(states)
+    return "ALL"
+
+
+def _batch_scope(rows: list[dict[str, object]]) -> str:
+    batches = sorted({str(row["batch_number"]) for row in rows if row.get("batch_number")})
+    if len(batches) == 1:
+        return batches[0]
+    if len(batches) > 1:
+        return "BATCH-MIXED"
+    return "BATCH-EXPORT"

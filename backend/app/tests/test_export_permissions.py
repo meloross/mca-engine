@@ -15,6 +15,8 @@ from app.models import FormLead, LeadSignalGrade
 def test_opt_in_no_consent_redacts_contact_fields() -> None:
     form_lead = FormLead(
         id=uuid4(),
+        form_lead_ref_id="FORM-MCA-20260610-000001",
+        batch_number="BATCH-FORM-20260610-001",
         state="NY",
         business_name="Demo No Consent Merchant LLC",
         contact_name="Demo Contact",

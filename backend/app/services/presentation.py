@@ -50,6 +50,9 @@ def serialize_signal(
     explanation = explain_signal(session, signal)
     payload: dict[str, Any] = {
         "id": str(signal.id),
+        "lead_reference_id": signal.lead_reference_id,
+        "batch_number": signal.batch_number,
+        "batch_date": signal.batch_date.isoformat() if signal.batch_date else None,
         "signal_type": signal.signal_type.value,
         "state": signal.state,
         "county": signal.county,
@@ -68,8 +71,20 @@ def serialize_signal(
         "exclusion_reason": redact_sensitive(signal.exclusion_reason),
         "compliance_flags": signal.compliance_flags,
         "source_id": str(signal.source_id),
-        "source_name": source.name if source else None,
+        "source_category": signal.source_category,
+        "source_name": signal.source_name or (source.name if source else None),
         "source_url": signal.source_url,
+        "source_captured_at": (
+            signal.source_captured_at.isoformat() if signal.source_captured_at else None
+        ),
+        "exported_to_master_sheet": signal.exported_to_master_sheet,
+        "master_sheet_sync_status": (
+            "synced" if signal.exported_to_master_sheet else "not_synced"
+        ),
+        "master_sheet_synced_at": (
+            signal.master_sheet_synced_at.isoformat() if signal.master_sheet_synced_at else None
+        ),
+        "master_sheet_row_number": signal.master_sheet_row_number,
         "created_at": signal.created_at.isoformat() if signal.created_at else None,
         "updated_at": signal.updated_at.isoformat() if signal.updated_at else None,
         "keyword_hits": explanation["keyword_hits"],
@@ -178,6 +193,8 @@ def serialize_buyer(buyer: BuyerAccount) -> dict[str, Any]:
 def serialize_delivery(delivery: LeadDelivery) -> dict[str, Any]:
     return {
         "id": str(delivery.id),
+        "delivery_id": delivery.delivery_id,
+        "batch_number": delivery.batch_number,
         "lead_signal_id": str(delivery.lead_signal_id),
         "buyer_account_id": str(delivery.buyer_account_id),
         "delivery_method": delivery.delivery_method.value,

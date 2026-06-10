@@ -28,6 +28,7 @@ from app.models.enums import (
     DeliveryMethod,
     LeadSignalGrade,
     LeadSignalStatus,
+    SequenceType,
     SignalType,
     SourceType,
     SuppressionType,
@@ -61,6 +62,27 @@ class TimestampMixin:
     )
 
 
+class IdSequence(TimestampMixin, Base):
+    __tablename__ = "id_sequences"
+    __table_args__ = (
+        Index(
+            "uq_id_sequences_type_scope_date",
+            "sequence_type",
+            "scope",
+            "date_key",
+            unique=True,
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(IdColumn, primary_key=True, default=uuid.uuid4)
+    sequence_type: Mapped[SequenceType] = mapped_column(
+        _enum(SequenceType, "sequence_type"), nullable=False
+    )
+    scope: Mapped[str] = mapped_column(String(40), nullable=False)
+    date_key: Mapped[str] = mapped_column(String(8), nullable=False)
+    current_value: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+
 class Source(TimestampMixin, Base):
     __tablename__ = "sources"
 
@@ -88,6 +110,14 @@ class IngestionRun(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(IdColumn, primary_key=True, default=uuid.uuid4)
     source_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sources.id"), nullable=False)
+    batch_number: Mapped[str] = mapped_column(String(40), unique=True, nullable=False)
+    batch_date: Mapped[date | None] = mapped_column(Date)
+    import_mode: Mapped[str | None] = mapped_column(String(80))
+    adapter_name: Mapped[str | None] = mapped_column(String(255))
+    query_filter_used: Mapped[str | None] = mapped_column(Text)
+    raw_artifact_path: Mapped[str | None] = mapped_column(Text)
+    raw_artifact_hash: Mapped[str | None] = mapped_column(String(64))
+    operator: Mapped[str | None] = mapped_column(String(120))
     run_type: Mapped[str] = mapped_column(String(80), nullable=False)
     status: Mapped[str] = mapped_column(String(80), nullable=False)
     started_at: Mapped[datetime] = mapped_column(
@@ -253,6 +283,17 @@ class LeadSignal(TimestampMixin, Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(IdColumn, primary_key=True, default=uuid.uuid4)
+    lead_reference_id: Mapped[str] = mapped_column(String(40), unique=True, nullable=False)
+    batch_number: Mapped[str] = mapped_column(String(40), nullable=False)
+    batch_date: Mapped[date | None] = mapped_column(Date)
+    source_category: Mapped[str | None] = mapped_column(String(120))
+    source_name: Mapped[str | None] = mapped_column(String(255))
+    source_captured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    exported_to_master_sheet: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    master_sheet_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    master_sheet_row_number: Mapped[int | None] = mapped_column(Integer)
     signal_type: Mapped[SignalType] = mapped_column(
         _enum(SignalType, "signal_type"), nullable=False
     )
@@ -323,6 +364,8 @@ class LeadDelivery(Base):
     __tablename__ = "lead_deliveries"
 
     id: Mapped[uuid.UUID] = mapped_column(IdColumn, primary_key=True, default=uuid.uuid4)
+    delivery_id: Mapped[str] = mapped_column(String(40), unique=True, nullable=False)
+    batch_number: Mapped[str | None] = mapped_column(String(40))
     lead_signal_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("lead_signals.id"), nullable=False)
     buyer_account_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("buyer_accounts.id"), nullable=False
@@ -341,6 +384,14 @@ class FormLead(Base):
     __tablename__ = "form_leads"
 
     id: Mapped[uuid.UUID] = mapped_column(IdColumn, primary_key=True, default=uuid.uuid4)
+    form_lead_ref_id: Mapped[str] = mapped_column(String(40), unique=True, nullable=False)
+    linked_lead_reference_id: Mapped[str | None] = mapped_column(String(40))
+    batch_number: Mapped[str | None] = mapped_column(String(40))
+    exported_to_master_sheet: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    master_sheet_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    master_sheet_row_number: Mapped[int | None] = mapped_column(Integer)
     state: Mapped[str] = mapped_column(String(2), nullable=False)
     business_name: Mapped[str] = mapped_column(Text, nullable=False)
     contact_name: Mapped[str] = mapped_column(Text, nullable=False)

@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     enable_live_adapters: bool = False
     enable_live_ny_adapters: bool = False
     enable_live_fl_adapters: bool = False
+    google_sheets_enabled: bool = False
+    google_service_account_json: str | None = None
+    google_application_credentials: str | None = None
+    mca_master_spreadsheet_id: str = "1gWcjO9JayZn2QzJXKFYNnToI7TrWWJC0udQhkkTu8pU"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

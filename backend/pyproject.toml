@@ -6,6 +6,8 @@ requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.13.2",
     "fastapi>=0.115.0",
+    "google-api-python-client>=2.134.0",
+    "google-auth>=2.31.0",
     "httpx>=0.28.0",
     "openpyxl>=3.1.5",
     "psycopg[binary]>=3.2.1",

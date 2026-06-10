@@ -118,8 +118,39 @@ make export-form-leads-xlsx
 - `FL_BUSINESS_IMPORT_DIR`
 - `ENABLE_LIVE_NY_ADAPTERS=false`
 - `ENABLE_LIVE_FL_ADAPTERS=false`
+- `GOOGLE_SHEETS_ENABLED=false`
+- `GOOGLE_SERVICE_ACCOUNT_JSON`
+- `GOOGLE_APPLICATION_CREDENTIALS`
+- `MCA_MASTER_SPREADSHEET_ID=1gWcjO9JayZn2QzJXKFYNnToI7TrWWJC0udQhkkTu8pU`
 
 No real credentials are required for the local demo.
+
+## Lead Storage System
+
+The PostgreSQL app database is the system of record. Google Sheets is the
+business-facing master tracker, and CSV/XLSX files are point-in-time export
+artifacts.
+
+Every public-record signal has:
+
+- `Lead Reference ID`: `MCA-{STATE}-{YYYYMMDD}-{SEQUENCE}`
+- `Batch Number`: `BATCH-{STATE_OR_SCOPE}-{YYYYMMDD}-{SEQUENCE}`
+- source category, source name, source URL, and source captured timestamp
+
+Every opt-in form lead has:
+
+- `Form Lead Ref ID`: `FORM-MCA-{YYYYMMDD}-{SEQUENCE}`
+- optional linked public-record lead reference
+- opt-in consent evidence and redacted no-consent export behavior
+
+Every delivery has:
+
+- `Delivery ID`: `DLV-{YYYYMMDD}-{SEQUENCE}`
+- the originating lead batch number
+
+The `id_sequences` table stores database-backed counters by type, scope, and
+date. IDs are generated server-side, are stable after creation, and are never
+regenerated during later scoring, review, export, or sync steps.
 
 ## Importing Manual Source Files
 
@@ -164,6 +195,9 @@ The demo seed command runs these mock imports and tops up demo data to at least:
 - 5 buyer rules
 - 10 consented opt-in form leads
 - 5 no-consent opt-in form leads for redaction testing
+- 5 buyer deliveries
+- at least 3 batch logs from mock imports
+- at least 5 source registry records
 - 5 suppressed/excluded signals for export filter testing
 
 ## Running Classifier And Scorer
@@ -214,6 +248,13 @@ Core endpoints:
 - `GET /exports/signals.xlsx`
 - `GET /exports/form-leads.csv`
 - `GET /exports/form-leads.xlsx`
+- `GET /admin/sync/google-sheets/status`
+- `POST /admin/sync/google-sheets/all`
+- `POST /admin/sync/google-sheets/leads`
+- `POST /admin/sync/google-sheets/batches`
+- `POST /admin/sync/google-sheets/sources`
+- `POST /admin/sync/google-sheets/deliveries`
+- `POST /admin/sync/google-sheets/opt-in-leads`
 
 ## Lead Exports
 
@@ -247,6 +288,101 @@ XLSX exports include `Signals` or `Form Leads`, `Summary`, and
 `Export Metadata` sheets. Header rows are frozen, bolded, filtered, and
 auto-sized. No-consent form leads redact contact fields as
 `NO_CONSENT_REDACTED`.
+
+Signal export filenames follow:
+
+```text
+mca_signals_{STATE_SCOPE}_{BATCH_NUMBER}_{TIMESTAMP}.csv
+mca_signals_{STATE_SCOPE}_{BATCH_NUMBER}_{TIMESTAMP}.xlsx
+```
+
+Opt-in export filenames follow:
+
+```text
+mca_opt_in_leads_{BATCH_NUMBER}_{TIMESTAMP}.csv
+mca_opt_in_leads_{BATCH_NUMBER}_{TIMESTAMP}.xlsx
+```
+
+Public-record exports include Lead Reference ID, Batch Number, Source Name,
+Source URL, and Source Captured At. Opt-in exports include Form Lead Ref ID,
+Linked Lead Reference ID, Batch Number, Consent To Contact, Consented At, and
+Consent Text.
+
+## Google Sheets Sync
+
+The master tracker spreadsheet is:
+
+```text
+MCA Leads Master Tracker
+https://docs.google.com/spreadsheets/d/1gWcjO9JayZn2QzJXKFYNnToI7TrWWJC0udQhkkTu8pU/edit
+```
+
+Tabs supported by the sync service:
+
+- `Lead_Master`
+- `Batch_Log`
+- `Source_Registry`
+- `Buyer_Delivery_Log`
+- `Opt_In_Leads`
+
+Sync is disabled by default. To enable it:
+
+1. Create a Google Cloud service account with Sheets API access.
+2. Share the spreadsheet with the service account email.
+3. Set `GOOGLE_SHEETS_ENABLED=true`.
+4. Set either `GOOGLE_SERVICE_ACCOUNT_JSON` to the JSON string or
+   `GOOGLE_APPLICATION_CREDENTIALS` to the service account file path.
+5. Confirm `MCA_MASTER_SPREADSHEET_ID` points to the tracker spreadsheet.
+
+CLI examples:
+
+```bash
+cd backend
+python -m app.scripts.sync_google_sheets --status
+python -m app.scripts.sync_google_sheets --all
+python -m app.scripts.sync_google_sheets --leads
+python -m app.scripts.sync_google_sheets --batches
+python -m app.scripts.sync_google_sheets --opt-in-leads
+```
+
+API examples:
+
+```bash
+curl "http://localhost:8000/admin/sync/google-sheets/status"
+curl -X POST "http://localhost:8000/admin/sync/google-sheets/all"
+curl -X POST "http://localhost:8000/admin/sync/google-sheets/leads"
+```
+
+The sync service deduplicates by column A IDs before appending:
+
+- Lead Reference ID for `Lead_Master`
+- Batch Number for `Batch_Log`
+- Source ID for `Source_Registry`
+- Delivery ID for `Buyer_Delivery_Log`
+- Form Lead Ref ID for `Opt_In_Leads`
+
+Successful lead and opt-in syncs set `exported_to_master_sheet`,
+`master_sheet_synced_at`, and `master_sheet_row_number`. Failed syncs do not
+mark records exported; they write `google_sheets_sync_error` audit events for
+later retry.
+
+Troubleshooting:
+
+- If sync returns `enabled=false`, set `GOOGLE_SHEETS_ENABLED=true`.
+- If auth fails, verify the service account JSON/path and Sheet sharing.
+- If rows do not append, check the tab names and column A IDs in the tracker.
+- If counts look high for batches or deliveries, run sync again; duplicate
+  column A IDs are skipped.
+
+## Example Commands
+
+```bash
+cd backend
+python -m app.scripts.sync_google_sheets --status
+python -m app.scripts.sync_google_sheets --all
+python -m app.scripts.export_leads --type signals --format csv --state NY --only-high-value --output ../exports/ny_high_value_mca_signals.csv
+python -m app.scripts.export_leads --type signals --format xlsx --states NY FL --min-score 75 --output ../exports/ny_fl_mca_signals.xlsx
+```
 
 ## Demo Script
 

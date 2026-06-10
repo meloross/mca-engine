@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.classifiers import classify_text
 from app.compliance import normalize_business_name
 from app.db import SessionLocal
+from app.ids import next_batch_number, next_delivery_id, next_lead_reference_id
 from app.models import (
     AccessMethod,
     AuditLog,
@@ -21,7 +22,9 @@ from app.models import (
     BuyerRule,
     Case,
     CaseDocument,
+    DeliveryMethod,
     FormLead,
+    LeadDelivery,
     LeadSignal,
     LeadSignalGrade,
     LeadSignalStatus,
@@ -91,6 +94,7 @@ async def seed_demo_data() -> dict[str, int]:
             consented_target=TARGET_CONSENTED_FORM_LEADS,
             no_consent_target=TARGET_NO_CONSENT_FORM_LEADS,
         )
+        _ensure_demo_deliveries(session, target=5)
 
         summary = _summary(session)
         session.add(
@@ -664,6 +668,12 @@ def _upsert_demo_signal(
         )
     )
     signal = existing or LeadSignal(
+        lead_reference_id=next_lead_reference_id(session, state, signal_date),
+        batch_number=next_batch_number(session, state, signal_date),
+        batch_date=signal_date,
+        source_category=source.source_type.value,
+        source_name=source.name,
+        source_captured_at=datetime.now(UTC),
         signal_type=signal_type,
         state=state,
         normalized_business_name=normalized_business,
@@ -689,7 +699,54 @@ def _upsert_demo_signal(
     signal.compliance_flags = compliance_flags
     signal.source_id = source.id
     signal.source_url = source_url
+    signal.batch_date = signal.batch_date or signal_date
+    signal.source_category = source.source_type.value
+    signal.source_name = source.name
+    signal.source_captured_at = signal.source_captured_at or datetime.now(UTC)
     session.add(signal)
+    session.commit()
+
+
+def _ensure_demo_deliveries(session: Session, *, target: int) -> None:
+    current = (
+        session.scalar(
+            select(func.count())
+            .select_from(LeadDelivery)
+            .where(LeadDelivery.rejected_reason == "demo delivery")
+        )
+        or 0
+    )
+    if current >= target:
+        return
+
+    buyers = list(session.scalars(select(BuyerAccount).where(BuyerAccount.active.is_(True))).all())
+    signals = list(
+        session.scalars(
+            select(LeadSignal)
+            .where(
+                LeadSignal.grade.in_((LeadSignalGrade.A_PLUS, LeadSignalGrade.A)),
+                LeadSignal.status.in_((LeadSignalStatus.NEW, LeadSignalStatus.DELIVERED)),
+            )
+            .order_by(LeadSignal.score.desc(), LeadSignal.signal_date.desc())
+            .limit(target)
+        ).all()
+    )
+    if not buyers or not signals:
+        return
+
+    for sequence, signal in enumerate(signals[current:target], start=current + 1):
+        buyer = buyers[(sequence - 1) % len(buyers)]
+        delivery = LeadDelivery(
+            delivery_id=next_delivery_id(session),
+            batch_number=signal.batch_number,
+            lead_signal_id=signal.id,
+            buyer_account_id=buyer.id,
+            delivery_method=DeliveryMethod.DASHBOARD,
+            accepted=sequence % 2 == 1,
+            rejected_reason="demo delivery",
+        )
+        signal.status = LeadSignalStatus.DELIVERED
+        session.add(delivery)
     session.commit()
 
 
@@ -725,6 +782,7 @@ def _summary(session: Session) -> dict[str, int]:
         "ucc_filings": session.scalar(select(func.count()).select_from(UccFiling)) or 0,
         "buyer_accounts": session.scalar(select(func.count()).select_from(BuyerAccount)) or 0,
         "buyer_rules": session.scalar(select(func.count()).select_from(BuyerRule)) or 0,
+        "lead_deliveries": session.scalar(select(func.count()).select_from(LeadDelivery)) or 0,
         "form_leads": session.scalar(select(func.count()).select_from(FormLead)) or 0,
         "consented_form_leads": session.scalar(
             select(func.count()).select_from(FormLead).where(FormLead.consent_to_contact.is_(True))

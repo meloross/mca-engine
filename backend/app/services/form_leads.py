@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.compliance import hash_sensitive_value, normalize_business_name
+from app.ids import next_batch_number, next_form_lead_ref_id
 from app.models import (
     AuditLog,
     BuyerAccount,
@@ -35,7 +36,10 @@ def create_form_lead(
     user_agent: str | None,
 ) -> FormLead:
     score = score_form_lead(payload)
+    created_date = date.today()
     form_lead = FormLead(
+        form_lead_ref_id=next_form_lead_ref_id(session, created_date),
+        batch_number=next_batch_number(session, "FORM", created_date),
         state=payload.state.upper(),
         business_name=payload.business_name,
         contact_name=payload.contact_name,
@@ -168,6 +172,9 @@ def serialize_form_lead(form_lead: FormLead, *, include_detail: bool = False) ->
     score = score_form_lead(form_lead)
     payload: dict[str, Any] = {
         "id": str(form_lead.id),
+        "form_lead_ref_id": form_lead.form_lead_ref_id,
+        "linked_lead_reference_id": form_lead.linked_lead_reference_id,
+        "batch_number": form_lead.batch_number,
         "state": form_lead.state,
         "business_name": redact_sensitive(form_lead.business_name),
         "normalized_business_name": _safe_normalized_business_name(form_lead.business_name),
@@ -199,6 +206,13 @@ def serialize_form_lead(form_lead: FormLead, *, include_detail: bool = False) ->
         "score": form_lead.score,
         "grade": form_lead.grade.value,
         "status": form_lead.status,
+        "exported_to_master_sheet": form_lead.exported_to_master_sheet,
+        "master_sheet_synced_at": (
+            form_lead.master_sheet_synced_at.isoformat()
+            if form_lead.master_sheet_synced_at
+            else None
+        ),
+        "master_sheet_row_number": form_lead.master_sheet_row_number,
         "score_reasons": list(score.reasons),
         "exclusion_reasons": list(score.exclusion_reasons),
         "created_at": form_lead.created_at.isoformat() if form_lead.created_at else None,

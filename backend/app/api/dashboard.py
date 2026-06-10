@@ -77,19 +77,7 @@ def dashboard_buyers(session: SessionDependency) -> HTMLResponse:
 
 def _signals_page(signals: list[dict[str, Any]], params: dict[str, Any]) -> str:
     rows = "".join(
-        f"""
-        <tr>
-          <td><a href="/dashboard/signals/{_h(signal["id"])}">{_h(signal["business_name"])}</a></td>
-          <td>{_h(signal["state"])}</td>
-          <td>{_h(signal["county"])}</td>
-          <td>{_h(signal["grade"])}</td>
-          <td>{_h(signal["score"])}</td>
-          <td>{_h(signal["funder_name"])}</td>
-          <td>{_h(signal["signal_type"])}</td>
-          <td>{_h(signal["status"])}</td>
-          <td>{_h(signal["signal_date"])}</td>
-        </tr>
-        """
+        _signal_row(signal)
         for signal in signals
     )
     return f"""
@@ -113,17 +101,69 @@ def _signals_page(signals: list[dict[str, Any]], params: dict[str, Any]) -> str:
         <a class="button" href="/dashboard?grade=A">A</a>
       </form>
       {_export_links(params)}
+      <nav class="exports">
+        <button type="button" onclick="syncSheet('/admin/sync/google-sheets/all')">
+          Sync All to Google Sheet
+        </button>
+        <button type="button" onclick="syncSheet('/admin/sync/google-sheets/leads')">
+          Sync Current Filter to Google Sheet
+        </button>
+      </nav>
     </section>
     <table>
       <thead>
         <tr>
-          <th>Business</th><th>State</th><th>County</th><th>Grade</th><th>Score</th>
-          <th>Funder</th><th>Type</th><th>Status</th><th>Date</th>
+          <th>Lead Ref</th><th>Batch</th><th>Business</th><th>State</th><th>County</th>
+          <th>Grade</th><th>Score</th><th>Funder</th><th>Type</th><th>Status</th><th>Date</th>
+          <th>Source Name</th><th>Source URL</th><th>Captured</th><th>Sheet Status</th>
+          <th>Exported</th><th>Last Synced</th>
         </tr>
       </thead>
-      <tbody>{rows or '<tr><td colspan="9">No signals</td></tr>'}</tbody>
+      <tbody>{rows or '<tr><td colspan="17">No signals</td></tr>'}</tbody>
     </table>
+    <script>
+      async function syncSheet(path) {{
+        const response = await fetch(path, {{method: 'POST'}});
+        alert(JSON.stringify(await response.json(), null, 2));
+        location.reload();
+      }}
+      async function copyText(value) {{
+        await navigator.clipboard.writeText(value);
+      }}
+    </script>
     """
+
+
+def _signal_row(signal: dict[str, Any]) -> str:
+    lead_reference_id = _h(signal["lead_reference_id"])
+    batch_number = _h(signal["batch_number"])
+    return f"""
+        <tr>
+          <td>
+            <code>{lead_reference_id}</code>
+            <button class="mini" onclick="copyText('{lead_reference_id}')">Copy</button>
+          </td>
+          <td>
+            <code>{batch_number}</code>
+            <button class="mini" onclick="copyText('{batch_number}')">Copy</button>
+          </td>
+          <td><a href="/dashboard/signals/{_h(signal["id"])}">{_h(signal["business_name"])}</a></td>
+          <td>{_h(signal["state"])}</td>
+          <td>{_h(signal["county"])}</td>
+          <td>{_h(signal["grade"])}</td>
+          <td>{_h(signal["score"])}</td>
+          <td>{_h(signal["funder_name"])}</td>
+          <td>{_h(signal["signal_type"])}</td>
+          <td>{_h(signal["status"])}</td>
+          <td>{_h(signal["signal_date"])}</td>
+          <td>{_h(signal["source_name"])}</td>
+          <td><a href="{_h(signal["source_url"])}" rel="noreferrer">Source</a></td>
+          <td>{_h(signal["source_captured_at"])}</td>
+          <td>{_h(signal["master_sheet_sync_status"])}</td>
+          <td>{_h(signal["exported_to_master_sheet"])}</td>
+          <td>{_h(signal["master_sheet_synced_at"])}</td>
+        </tr>
+        """
 
 
 def _export_links(params: dict[str, Any]) -> str:
@@ -172,6 +212,8 @@ def _filter_query(params: dict[str, Any]) -> str:
 def _signal_detail_page(signal: dict[str, Any], buyers: list[dict[str, Any]]) -> str:
     case_panel = _panel("Case", _key_values(signal["case"])) if signal.get("case") else ""
     ucc_panel = _panel("UCC", _key_values(signal["ucc_filing"])) if signal.get("ucc_filing") else ""
+    lead_reference_id = _h(signal["lead_reference_id"])
+    batch_number = _h(signal["batch_number"])
     buyer_options = "".join(
         f'<option value="{_h(buyer["id"])}">{_h(buyer["firm_name"])}</option>' for buyer in buyers
     )
@@ -201,6 +243,8 @@ def _signal_detail_page(signal: dict[str, Any], buyers: list[dict[str, Any]]) ->
       {ucc_panel}
     </section>
     <section class="actions">
+      <button onclick="copyText('{lead_reference_id}')">Copy Lead Reference ID</button>
+      <button onclick="copyText('{batch_number}')">Copy Batch Number</button>
       <button onclick="reviewSignal('reviewed')">Reviewed</button>
       <button onclick="reviewSignal('suppressed')">Suppress</button>
       <button onclick="reviewSignal('excluded')">Exclude</button>
@@ -234,6 +278,9 @@ def _signal_detail_page(signal: dict[str, Any], buyers: list[dict[str, Any]]) ->
           body: JSON.stringify({{buyer_account_id, delivery_method}})
         }});
         location.reload();
+      }}
+      async function copyText(value) {{
+        await navigator.clipboard.writeText(value);
       }}
     </script>
     """
@@ -345,6 +392,8 @@ def _css() -> str:
             "input, select, button, .button { padding: 8px 10px;",
             "  border: 1px solid #cfd6df; border-radius: 6px; background: white; }",
             "button, .button { cursor: pointer; text-decoration: none; color: #17202a; }",
+            ".mini { padding: 3px 6px; margin-left: 4px; font-size: 11px; }",
+            "code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }",
             ".filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }",
             ".exports { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 16px; }",
             ".detail-head { display: flex; justify-content: space-between;",

@@ -130,6 +130,8 @@ def _form_lead(
     consent_text: str = "I consent to contact.",
 ) -> FormLead:
     return FormLead(
+        form_lead_ref_id="FORM-MCA-20260610-000001",
+        batch_number="BATCH-FORM-20260610-001",
         state=state,
         business_name="Biscayne Bistro LLC",
         contact_name="Avery Rivera",
