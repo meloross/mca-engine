@@ -18,15 +18,16 @@ branch_labels = None
 depends_on = None
 
 
-enrichment_status = sa.Enum(
+enrichment_status = postgresql.ENUM(
     "pending",
     "success",
     "partial",
     "failed",
     "skipped",
     name="enrichment_status",
+    create_type=False,
 )
-lead_contact_type = sa.Enum(
+lead_contact_type = postgresql.ENUM(
     "business_phone",
     "business_email",
     "website",
@@ -35,14 +36,16 @@ lead_contact_type = sa.Enum(
     "mailing_address",
     "physical_address",
     name="lead_contact_type",
+    create_type=False,
 )
-contact_verification_status = sa.Enum(
+contact_verification_status = postgresql.ENUM(
     "unverified",
     "verified",
     "invalid",
     "risky",
     "unknown",
     name="contact_verification_status",
+    create_type=False,
 )
 
 
@@ -51,6 +54,11 @@ def text_array() -> postgresql.ARRAY:
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    enrichment_status.create(bind, checkfirst=True)
+    lead_contact_type.create(bind, checkfirst=True)
+    contact_verification_status.create(bind, checkfirst=True)
+
     op.add_column("lead_signals", sa.Column("owner_principal_name", sa.Text(), nullable=True))
     op.add_column("lead_signals", sa.Column("owner_principal_title", sa.Text(), nullable=True))
     op.add_column("lead_signals", sa.Column("owner_source", sa.Text(), nullable=True))
