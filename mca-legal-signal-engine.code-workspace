@@ -1,0 +1,29 @@
+{
+  "folders": [
+    {
+      "name": "project-root",
+      "path": "."
+    },
+    {
+      "name": "backend",
+      "path": "backend"
+    },
+    {
+      "name": "docs",
+      "path": "docs"
+    },
+    {
+      "name": "exports",
+      "path": "exports"
+    }
+  ],
+  "settings": {
+    "python.defaultInterpreterPath": "${workspaceFolder:project-root}/backend/.venv/Scripts/python.exe",
+    "python.testing.pytestEnabled": true,
+    "python.testing.pytestArgs": [
+      "${workspaceFolder:project-root}/backend/app/tests"
+    ],
+    "ruff.enable": true,
+    "editor.formatOnSave": true
+  }
+}

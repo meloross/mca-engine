@@ -1,0 +1,9 @@
+Document Title: Verified Complaint
+Document Type: Complaint
+Filed At: 2026-06-07T10:15:00+00:00
+Document URL: https://iapps.courts.state.ny.us/nyscef/document/501001-complaint
+
+Text:
+This complaint concerns a merchant cash advance and revenue purchase agreement
+with daily ACH debit remittances and a confession of judgment.
+

@@ -1,0 +1,97 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Docker Compose Up",
+      "type": "shell",
+      "command": "docker compose up -d --build",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Docker Compose Down",
+      "type": "shell",
+      "command": "docker compose down",
+      "problemMatcher": []
+    },
+    {
+      "label": "Backend Install",
+      "type": "shell",
+      "command": "python -m pip install -e \".[dev]\"",
+      "options": {
+        "cwd": "${workspaceFolder}/backend"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Alembic Migrate",
+      "type": "shell",
+      "command": "docker compose exec backend alembic upgrade head",
+      "problemMatcher": []
+    },
+    {
+      "label": "Seed Demo Data",
+      "type": "shell",
+      "command": "docker compose exec backend python -m app.jobs.seed_demo",
+      "problemMatcher": []
+    },
+    {
+      "label": "Import Mock NY Leads",
+      "type": "shell",
+      "command": "python -c \"import urllib.request; req=urllib.request.Request('http://localhost:8000/admin/import/mock?state=NY', method='POST'); print(urllib.request.urlopen(req).read().decode())\"",
+      "problemMatcher": []
+    },
+    {
+      "label": "Import Mock FL Leads",
+      "type": "shell",
+      "command": "python -c \"import urllib.request; req=urllib.request.Request('http://localhost:8000/admin/import/mock?state=FL', method='POST'); print(urllib.request.urlopen(req).read().decode())\"",
+      "problemMatcher": []
+    },
+    {
+      "label": "Run Tests",
+      "type": "shell",
+      "command": "python -m pytest",
+      "options": {
+        "cwd": "${workspaceFolder}/backend"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Run Ruff",
+      "type": "shell",
+      "command": "python -m ruff check .",
+      "options": {
+        "cwd": "${workspaceFolder}/backend"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run Mypy",
+      "type": "shell",
+      "command": "python -m mypy app",
+      "options": {
+        "cwd": "${workspaceFolder}/backend"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Export Leads CSV",
+      "type": "shell",
+      "command": "python -m app.scripts.export_leads --type signals --format csv --states NY FL --only-high-value --output ../exports/ny_fl_high_value_mca_signals.csv",
+      "options": {
+        "cwd": "${workspaceFolder}/backend"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Export Leads XLSX",
+      "type": "shell",
+      "command": "python -m app.scripts.export_leads --type signals --format xlsx --states NY FL --only-high-value --output ../exports/ny_fl_high_value_mca_signals.xlsx",
+      "options": {
+        "cwd": "${workspaceFolder}/backend"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

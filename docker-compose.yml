@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mca_legal_signal_engine
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mca_legal_signal_engine"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/mca_legal_signal_engine}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      APP_ENV: ${APP_ENV:-local}
+      ENABLE_LIVE_ADAPTERS: ${ENABLE_LIVE_ADAPTERS:-false}
+      STORAGE_PATH: ${STORAGE_PATH:-/data/artifacts}
+      SECRET_KEY: ${SECRET_KEY:-dev-only-change-me}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
+      SENSITIVE_HASH_PEPPER: ${SENSITIVE_HASH_PEPPER:-dev-only-change-me}
+      NY_MANUAL_IMPORT_DIR: /data/imports/ny
+      FL_MANUAL_IMPORT_DIR: /data/imports/fl
+      FL_BUSINESS_IMPORT_DIR: /data/imports/fl/business
+      ENABLE_LIVE_NY_ADAPTERS: "false"
+      ENABLE_LIVE_FL_ADAPTERS: "false"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:

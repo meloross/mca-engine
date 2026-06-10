@@ -1,0 +1,45 @@
+[project]
+name = "mca-legal-signal-engine-backend"
+version = "0.1.0"
+description = "Database schema for MCA legal-market intelligence and compliant opt-in lead routing."
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.13.2",
+    "fastapi>=0.115.0",
+    "httpx>=0.28.0",
+    "openpyxl>=3.1.5",
+    "psycopg[binary]>=3.2.1",
+    "pydantic-settings>=2.4.0",
+    "pypdf>=5.0.0",
+    "sqlalchemy>=2.0.32",
+    "uvicorn[standard]>=0.30.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.11.1",
+    "pytest>=8.3.2",
+    "ruff>=0.5.6",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+exclude = ["alembic*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["app/tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["sqlalchemy.ext.mypy.plugin"]
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true

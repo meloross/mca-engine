@@ -1,0 +1,33 @@
+{
+  "name": "MCA Legal Signal Engine",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "backend",
+  "workspaceFolder": "/workspaces/mca-legal-signal-engine",
+  "shutdownAction": "stopCompose",
+  "postCreateCommand": "cd backend && python -m pip install -e \".[dev]\"",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "ms-azuretools.vscode-docker",
+        "redhat.vscode-yaml",
+        "GitHub.vscode-github-actions"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": [
+          "backend/app/tests"
+        ],
+        "ruff.enable": true,
+        "ruff.lint.enable": true,
+        "editor.formatOnSave": true,
+        "editor.rulers": [
+          100
+        ]
+      }
+    }
+  }
+}
