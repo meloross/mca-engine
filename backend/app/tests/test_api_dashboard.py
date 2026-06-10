@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from app.api.dashboard import _signal_detail_page, _signals_page
+from app.api.dashboard import (
+    _live_harvest_page,
+    _signal_detail_page,
+    _signals_page,
+    _source_policies_page,
+)
 from app.api.signals import _filtered_signal_statement
 from app.main import app
 from app.services.presentation import redact_sensitive
@@ -29,6 +34,10 @@ def test_health_and_openapi_include_review_and_dashboard_routes() -> None:
     assert "/admin/jobs/enqueue/demo-leads" in openapi["paths"]
     assert "/admin/jobs/enqueue/enrichment" in openapi["paths"]
     assert "/admin/jobs/enqueue/enrichment-high-value" in openapi["paths"]
+    assert "/admin/sources/policies" in openapi["paths"]
+    assert "/admin/sources/policies/{source_code}/enable" in openapi["paths"]
+    assert "/admin/live-harvest/start" in openapi["paths"]
+    assert "/admin/live-harvest/status" in openapi["paths"]
     assert "/events/signals" in openapi["paths"]
     assert "/analytics/summary" in openapi["paths"]
 
@@ -128,3 +137,33 @@ def test_dashboard_signal_detail_contains_review_delivery_and_explanation() -> N
     assert "deliverSignal()" in html
     assert "merchant cash advance" in html
     assert "+30 known MCA funder match" in html
+
+
+def test_dashboard_source_policy_page_has_policy_actions() -> None:
+    html = _source_policies_page(
+        [
+            {
+                "source_code": "FL_SUNBIZ_DOWNLOADS",
+                "source_name": "Florida Division of Corporations Data Downloads",
+                "state": "FL",
+                "acquisition_method": "official_download",
+                "status": "active",
+                "automation_allowed": True,
+                "live_enabled": True,
+                "rate_limit_seconds": 2,
+                "status_reason": "Official public data download.",
+            }
+        ]
+    )
+
+    assert "FL_SUNBIZ_DOWNLOADS" in html
+    assert "sourcePolicyAction('FL_SUNBIZ_DOWNLOADS', 'enable')" in html
+    assert "/dashboard/live-harvest" in html
+
+
+def test_dashboard_live_harvest_page_posts_admin_endpoint() -> None:
+    html = _live_harvest_page()
+
+    assert "/admin/live-harvest/start?" in html
+    assert "state-ny" in html
+    assert "state-fl" in html

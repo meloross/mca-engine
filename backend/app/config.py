@@ -37,6 +37,17 @@ class Settings(BaseSettings):
     enrichment_auto_run: bool = False
     enrichment_min_score: int = 75
     enrichment_grades: str = "A_PLUS,A"
+    fl_sunbiz_downloads_enabled: bool = False
+    fl_sunbiz_sftp_host: str = "sftp.floridados.gov"
+    fl_sunbiz_sftp_username: str = "Public"
+    fl_sunbiz_sftp_password: str | None = None
+    fl_sunbiz_download_mode: str = "https_or_sftp"
+    fl_sunbiz_download_dir: str = "data/official_downloads/fl/sunbiz"
+    ny_ucc_data_download_enabled: bool = False
+    ny_ucc_data_download_endpoint: str | None = None
+    ny_ucc_data_download_username: str | None = None
+    ny_ucc_data_download_password: str | None = None
+    ny_ucc_data_download_dir: str = "data/official_downloads/ny/ucc"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

@@ -12,6 +12,35 @@ class SourceType(StrEnum):
     MANUAL_UPLOAD = "manual_upload"
 
 
+class SourcePolicySourceType(StrEnum):
+    BUSINESS_REGISTRY = "business_registry"
+    UCC_REGISTRY = "ucc_registry"
+    COURT_PUBLIC_SEARCH = "court_public_search"
+    COURT_LOGIN_PORTAL = "court_login_portal"
+    COUNTY_CLERK = "county_clerk"
+    LICENSED_FEED = "licensed_feed"
+    OFFICIAL_BULK_DOWNLOAD = "official_bulk_download"
+    ENRICHMENT = "enrichment"
+
+
+class AcquisitionMethod(StrEnum):
+    OFFICIAL_DOWNLOAD = "official_download"
+    PUBLIC_SEARCH = "public_search"
+    API = "api"
+    PLAYWRIGHT_PUBLIC_SEARCH = "playwright_public_search"
+    LICENSED_FEED = "licensed_feed"
+    MANUAL_IMPORT = "manual_import"
+    DISABLED = "disabled"
+
+
+class SourcePolicyStatus(StrEnum):
+    ACTIVE = "active"
+    DISABLED = "disabled"
+    BLOCKED_BY_TERMS = "blocked_by_terms"
+    NEEDS_PERMISSION = "needs_permission"
+    ERROR = "error"
+
+
 class AccessMethod(StrEnum):
     MOCK = "mock"
     MANUAL_IMPORT = "manual_import"

@@ -9,11 +9,20 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
+from app.harvest.source_policy import (
+    SourcePolicyError,
+    check_source_policy,
+    disable_source_policy,
+    enable_source_policy,
+    list_source_policies,
+    serialize_source_policy,
+)
 from app.integrations.google_sheets import GoogleSheetsSyncResult, GoogleSheetsSyncService
 from app.jobs.queue import enqueue_job, queue_status
 from app.jobs.tasks import (
     create_demo_leads,
     process_pending_enrichment_jobs,
+    run_live_sources_job,
     sync_google_sheets_job,
 )
 from app.models import AuditLog, EnrichmentRun, IngestionRun, LeadSignal
@@ -117,6 +126,12 @@ def jobs_recent(session: SessionDependency) -> list[dict[str, object]]:
                     "analytics_summary_refreshed",
                     "google_sheets_sync_success",
                     "google_sheets_sync_error",
+                    "live_harvest_started",
+                    "live_harvest_finished",
+                    "live_harvest_error",
+                    "source_policy_enabled",
+                    "source_policy_disabled",
+                    "source_policy_checked",
                 )
             )
         )
@@ -166,6 +181,132 @@ def enqueue_sync_google_sheets() -> dict[str, object]:
     return {"job": "sync_google_sheets", "job_id": job_id}
 
 
+@router.get("/sources/policies")
+def source_policies(
+    session: SessionDependency,
+    state: Annotated[str | None, Query(min_length=2, max_length=2)] = None,
+) -> list[dict[str, object]]:
+    return [
+        serialize_source_policy(policy)
+        for policy in list_source_policies(session, state=state)
+    ]
+
+
+@router.post("/sources/policies/{source_code}/enable")
+def source_policy_enable(
+    source_code: str,
+    session: SessionDependency,
+    confirm_terms_reviewed: bool = False,
+) -> dict[str, object]:
+    try:
+        policy = enable_source_policy(
+            session,
+            source_code,
+            confirm_terms_reviewed=confirm_terms_reviewed,
+        )
+        session.commit()
+        return serialize_source_policy(policy)
+    except SourcePolicyError as exc:
+        session.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/sources/policies/{source_code}/disable")
+def source_policy_disable(source_code: str, session: SessionDependency) -> dict[str, object]:
+    try:
+        policy = disable_source_policy(session, source_code)
+        session.commit()
+        return serialize_source_policy(policy)
+    except SourcePolicyError as exc:
+        session.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/sources/policies/{source_code}/check")
+def source_policy_check(source_code: str, session: SessionDependency) -> dict[str, object]:
+    try:
+        policy = check_source_policy(session, source_code)
+        session.commit()
+        return serialize_source_policy(policy)
+    except SourcePolicyError as exc:
+        session.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/live-harvest/start")
+def start_live_harvest(
+    session: SessionDependency,
+    states: Annotated[list[str] | None, Query()] = None,
+    target: Annotated[int, Query(ge=1, le=1000)] = 100,
+    dry_run: bool = False,
+    enrich: bool = True,
+    sync_google_sheets: bool = False,
+    export: bool = True,
+) -> dict[str, object]:
+    normalized_states = tuple(state.upper() for state in states or ())
+    if _worker_queue_available():
+        job_id = enqueue_job(
+            run_live_sources_job,
+            normalized_states or None,
+            target,
+            dry_run,
+            enrich,
+            sync_google_sheets,
+            export,
+        )
+        return {"status": "queued", "job": "live_harvest", "job_id": job_id}
+
+    result = run_live_sources_job(
+        normalized_states or None,
+        target=target,
+        dry_run=dry_run,
+        enrich=enrich,
+        sync_google_sheets=sync_google_sheets,
+        export=export,
+    )
+    session.commit()
+    return result
+
+
+@router.post("/live-harvest/stop")
+def stop_live_harvest(session: SessionDependency) -> dict[str, object]:
+    session.add(
+        AuditLog(
+            actor="admin",
+            action="live_harvest_stop_requested",
+            entity_type="live_harvest",
+            entity_id="latest",
+            event_metadata={"note": "Stop requested; queued jobs cannot be cancelled from MVP UI."},
+        )
+    )
+    session.commit()
+    return {"status": "stop_requested", "note": "Queued harvest jobs finish at source boundaries."}
+
+
+@router.get("/live-harvest/status")
+def live_harvest_status(session: SessionDependency) -> dict[str, object]:
+    event = session.scalar(
+        select(AuditLog)
+        .where(
+            AuditLog.action.in_(
+                ("live_harvest_started", "live_harvest_finished", "live_harvest_error")
+            )
+        )
+        .order_by(AuditLog.created_at.desc())
+    )
+    if event is None:
+        return {"status": "idle", "last_event": None}
+    return {
+        "status": event.action.removeprefix("live_harvest_"),
+        "last_event": {
+            "actor": event.actor,
+            "action": event.action,
+            "metadata": event.event_metadata,
+            "created_at": event.created_at.isoformat() if event.created_at else None,
+        },
+    }
+
+
 def _serialize_results(results: Mapping[str, GoogleSheetsSyncResult]) -> dict[str, object]:
     return {key: asdict(value) for key, value in results.items()}
 
@@ -212,3 +353,8 @@ def _last_enrichment_run(session: Session) -> dict[str, object] | None:
 def _last_lead_inserted_at(session: Session) -> str | None:
     signal = session.scalar(select(LeadSignal).order_by(LeadSignal.created_at.desc()))
     return signal.created_at.isoformat() if signal and signal.created_at else None
+
+
+def _worker_queue_available() -> bool:
+    status = queue_status()
+    return bool(status.redis_connected)

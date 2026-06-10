@@ -14,6 +14,7 @@ from app.db import SessionLocal
 from app.enrichment import enrich_lead
 from app.events import publish_event, signal_event_payload
 from app.exports import ExportFilters, export_signals_bytes
+from app.harvest.live_harvester import LiveHarvester
 from app.ids import next_batch_number, next_lead_reference_id
 from app.integrations.google_sheets import GoogleSheetsSyncService
 from app.models import (
@@ -87,11 +88,30 @@ def refresh_analytics_dashboard_summary() -> dict[str, object]:
         return summary
 
 
-def run_live_sources_job(state: str | None = None) -> dict[str, object]:
-    if not settings.enable_live_adapters:
-        return {"status": "skipped", "reason": "ENABLE_LIVE_ADAPTERS=false"}
-    normalized_state = state.upper() if state else "ALL"
-    return {"status": "skipped", "state": normalized_state, "reason": "No live adapters enabled."}
+def run_live_sources_job(
+    states: tuple[str, ...] | list[str] | str | None = None,
+    target: int = 100,
+    dry_run: bool = False,
+    enrich: bool = True,
+    sync_google_sheets: bool = False,
+    export: bool = True,
+) -> dict[str, object]:
+    normalized_states: tuple[str, ...]
+    if isinstance(states, str):
+        normalized_states = (states.upper(),)
+    elif states:
+        normalized_states = tuple(state.upper() for state in states)
+    else:
+        normalized_states = ("NY", "FL")
+    with SessionLocal() as session:
+        return LiveHarvester(session).run(
+            states=normalized_states,
+            target=target,
+            dry_run=dry_run,
+            enrich=enrich,
+            sync_google_sheets=sync_google_sheets,
+            export=export,
+        ).as_dict()
 
 
 def run_mock_ingestion_job(state: str = "NY") -> dict[str, int | str]:

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.api.signals import _filtered_signal_statement
 from app.db import get_session
+from app.harvest.source_policy import list_source_policies, serialize_source_policy
 from app.models import BuyerAccount, LeadSignal
 from app.services.presentation import serialize_buyer, serialize_signal
 
@@ -87,6 +88,17 @@ def dashboard_signal_detail(signal_id: UUID, session: SessionDependency) -> HTML
 def dashboard_buyers(session: SessionDependency) -> HTMLResponse:
     buyers = [serialize_buyer(buyer) for buyer in session.scalars(select(BuyerAccount)).all()]
     return HTMLResponse(_layout("Buyers", _buyers_page(buyers)))
+
+
+@router.get("/dashboard/source-policies", response_class=HTMLResponse)
+def dashboard_source_policies(session: SessionDependency) -> HTMLResponse:
+    policies = [serialize_source_policy(policy) for policy in list_source_policies(session)]
+    return HTMLResponse(_layout("Source Policies", _source_policies_page(policies)))
+
+
+@router.get("/dashboard/live-harvest", response_class=HTMLResponse)
+def dashboard_live_harvest() -> HTMLResponse:
+    return HTMLResponse(_layout("Live Harvest", _live_harvest_page()))
 
 
 def _signals_page(signals: list[dict[str, Any]], params: dict[str, Any]) -> str:
@@ -231,7 +243,9 @@ def _signals_page(signals: list[dict[str, Any]], params: dict[str, Any]) -> str:
           pollFallback();
         }};
         const events = ['signal_created', 'signal_updated', 'enrichment_started',
-          'enrichment_completed', 'google_sheet_synced', 'job_failed'];
+          'enrichment_completed', 'google_sheet_synced', 'job_failed', 'harvest_started',
+          'source_started', 'source_finished', 'source_skipped', 'source_blocked',
+          'harvest_finished'];
         for (const eventType of events) {{
           source.addEventListener(eventType, event => {{
             const envelope = JSON.parse(event.data);
@@ -457,6 +471,128 @@ def _buyers_page(buyers: list[dict[str, Any]]) -> str:
     """
 
 
+def _source_policies_page(policies: list[dict[str, object]]) -> str:
+    rows = "".join(_source_policy_row(policy) for policy in policies)
+    return f"""
+    <section class="toolbar">
+      <a class="button" href="/dashboard/live-harvest">Live Harvest</a>
+      <a class="button" href="/dashboard">Signals</a>
+    </section>
+    <section class="live-feed">
+      <h2>Source Policies</h2>
+    </section>
+    <table>
+      <thead>
+        <tr>
+          <th>Code</th><th>Name</th><th>State</th><th>Method</th><th>Status</th>
+          <th>Automation</th><th>Live</th><th>Rate Limit</th><th>Reason</th><th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>{rows or '<tr><td colspan="10">No source policies</td></tr>'}</tbody>
+    </table>
+    <script>
+      async function sourcePolicyAction(code, action) {{
+        let url = `/admin/sources/policies/${{code}}/${{action}}`;
+        if (action === 'enable') {{
+          const ok = confirm(
+            'Confirm you reviewed the source terms and automation/use is allowed.'
+          );
+          if (!ok) return;
+          url += '?confirm_terms_reviewed=true';
+        }}
+        const response = await fetch(url, {{method: 'POST'}});
+        const payload = await response.json();
+        if (!response.ok) alert(JSON.stringify(payload, null, 2));
+        location.reload();
+      }}
+    </script>
+    """
+
+
+def _source_policy_row(policy: dict[str, object]) -> str:
+    source_code = _h(policy["source_code"])
+    return f"""
+      <tr>
+        <td><code>{source_code}</code></td>
+        <td>{_h(policy["source_name"])}</td>
+        <td>{_h(policy["state"])}</td>
+        <td>{_h(policy["acquisition_method"])}</td>
+        <td>{_h(policy["status"])}</td>
+        <td>{_h(policy["automation_allowed"])}</td>
+        <td>{_h(policy["live_enabled"])}</td>
+        <td>{_h(policy["rate_limit_seconds"])}</td>
+        <td>{_h(policy["status_reason"])}</td>
+        <td>
+          <button onclick="sourcePolicyAction('{source_code}', 'check')">Check</button>
+          <button onclick="sourcePolicyAction('{source_code}', 'enable')">Enable</button>
+          <button onclick="sourcePolicyAction('{source_code}', 'disable')">Disable</button>
+        </td>
+      </tr>
+    """
+
+
+def _live_harvest_page() -> str:
+    return """
+    <section class="toolbar">
+      <a class="button" href="/dashboard/source-policies">Source Policies</a>
+      <a class="button" href="/dashboard">Signals</a>
+    </section>
+    <section class="panel">
+      <h2>Live Harvest</h2>
+      <div class="filters">
+        <label><input type="checkbox" id="state-ny" checked> NY</label>
+        <label><input type="checkbox" id="state-fl" checked> FL</label>
+        <input id="target" type="number" min="1" max="1000" value="100" placeholder="Target">
+        <label><input type="checkbox" id="dry-run"> Dry run</label>
+        <label><input type="checkbox" id="sync-sheets"> Sync Sheets</label>
+        <button onclick="startLiveHarvest()">Start</button>
+        <button onclick="stopLiveHarvest()">Stop</button>
+        <button onclick="refreshHarvestStatus()">Refresh Status</button>
+      </div>
+      <pre id="harvest-status">Loading...</pre>
+    </section>
+    <script>
+      function selectedStates() {
+        const states = [];
+        if (document.getElementById('state-ny').checked) states.push('NY');
+        if (document.getElementById('state-fl').checked) states.push('FL');
+        return states;
+      }
+      async function startLiveHarvest() {
+        const query = new URLSearchParams();
+        for (const state of selectedStates()) query.append('states', state);
+        query.set('target', document.getElementById('target').value || '100');
+        query.set('dry_run', document.getElementById('dry-run').checked ? 'true' : 'false');
+        query.set(
+          'sync_google_sheets',
+          document.getElementById('sync-sheets').checked ? 'true' : 'false'
+        );
+        const response = await fetch(
+          '/admin/live-harvest/start?' + query.toString(),
+          {method: 'POST'}
+        );
+        await showHarvestResponse(response);
+      }
+      async function stopLiveHarvest() {
+        const response = await fetch('/admin/live-harvest/stop', {method: 'POST'});
+        await showHarvestResponse(response);
+      }
+      async function refreshHarvestStatus() {
+        const response = await fetch('/admin/live-harvest/status');
+        await showHarvestResponse(response);
+      }
+      async function showHarvestResponse(response) {
+        document.getElementById('harvest-status').textContent = JSON.stringify(
+          await response.json(),
+          null,
+          2
+        );
+      }
+      refreshHarvestStatus();
+    </script>
+    """
+
+
 def _layout(title: str, body: str) -> str:
     return f"""
     <!doctype html>
@@ -472,6 +608,8 @@ def _layout(title: str, body: str) -> str:
           <strong>MCA Legal Signal Engine</strong>
           <a href="/dashboard">Signals</a>
           <a href="/dashboard/buyers">Buyers</a>
+          <a href="/dashboard/source-policies">Source Policies</a>
+          <a href="/dashboard/live-harvest">Live Harvest</a>
           <a href="/analytics/summary">Analytics</a>
         </header>
         <main>{body}</main>

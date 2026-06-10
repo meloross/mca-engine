@@ -1,6 +1,7 @@
 from app.models.base import Base
 from app.models.enums import (
     AccessMethod,
+    AcquisitionMethod,
     ArtifactType,
     ContactVerificationStatus,
     DeliveryMethod,
@@ -10,6 +11,8 @@ from app.models.enums import (
     LeadSignalStatus,
     SequenceType,
     SignalType,
+    SourcePolicySourceType,
+    SourcePolicyStatus,
     SourceType,
     SuppressionType,
 )
@@ -33,12 +36,14 @@ from app.models.schema import (
     McaFunder,
     RawArtifact,
     Source,
+    SourcePolicy,
     SuppressionListEntry,
     UccFiling,
 )
 
 __all__ = [
     "AccessMethod",
+    "AcquisitionMethod",
     "ArtifactType",
     "AuditLog",
     "Base",
@@ -68,6 +73,9 @@ __all__ = [
     "SequenceType",
     "SignalType",
     "Source",
+    "SourcePolicy",
+    "SourcePolicySourceType",
+    "SourcePolicyStatus",
     "SourceType",
     "SuppressionListEntry",
     "SuppressionType",

@@ -24,6 +24,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
 from app.models.enums import (
     AccessMethod,
+    AcquisitionMethod,
     ArtifactType,
     ContactVerificationStatus,
     DeliveryMethod,
@@ -33,6 +34,8 @@ from app.models.enums import (
     LeadSignalStatus,
     SequenceType,
     SignalType,
+    SourcePolicySourceType,
+    SourcePolicyStatus,
     SourceType,
     SuppressionType,
 )
@@ -106,6 +109,43 @@ class Source(TimestampMixin, Base):
 
     ingestion_runs: Mapped[list[IngestionRun]] = relationship(back_populates="source")
     raw_artifacts: Mapped[list[RawArtifact]] = relationship(back_populates="source")
+
+
+class SourcePolicy(TimestampMixin, Base):
+    __tablename__ = "source_policies"
+    __table_args__ = (
+        Index("uq_source_policies_source_code", "source_code", unique=True),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(IdColumn, primary_key=True, default=uuid.uuid4)
+    source_code: Mapped[str] = mapped_column(String(120), nullable=False)
+    source_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    state: Mapped[str | None] = mapped_column(String(2))
+    source_type: Mapped[SourcePolicySourceType] = mapped_column(
+        _enum(SourcePolicySourceType, "source_policy_source_type"),
+        nullable=False,
+    )
+    acquisition_method: Mapped[AcquisitionMethod] = mapped_column(
+        _enum(AcquisitionMethod, "acquisition_method"),
+        nullable=False,
+    )
+    base_url: Mapped[str] = mapped_column(Text, nullable=False)
+    terms_url: Mapped[str | None] = mapped_column(Text)
+    robots_url: Mapped[str | None] = mapped_column(Text)
+    automation_allowed: Mapped[bool | None] = mapped_column(Boolean)
+    live_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    requires_login: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    captcha_observed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    requires_payment: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    rate_limit_seconds: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
+    max_pages_per_run: Mapped[int] = mapped_column(Integer, default=25, nullable=False)
+    status: Mapped[SourcePolicyStatus] = mapped_column(
+        _enum(SourcePolicyStatus, "source_policy_status"),
+        default=SourcePolicyStatus.DISABLED,
+        nullable=False,
+    )
+    status_reason: Mapped[str | None] = mapped_column(Text)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class IngestionRun(Base):

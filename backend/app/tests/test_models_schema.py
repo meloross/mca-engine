@@ -11,6 +11,7 @@ from app.models import Base
 EXPECTED_TABLES = {
     "id_sequences",
     "sources",
+    "source_policies",
     "ingestion_runs",
     "raw_artifacts",
     "cases",
@@ -65,6 +66,7 @@ def test_required_unique_indexes_exist() -> None:
             "uq_id_sequences_type_scope_date",
             ("sequence_type", "scope", "date_key"),
         ),
+        "source_policies": ("uq_source_policies_source_code", ("source_code",)),
     }
 
     for table_name, (index_name, column_names) in expected.items():

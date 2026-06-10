@@ -18,6 +18,8 @@ buyer routing.
 - Supports buyer accounts and buyer rules for reviewed leads.
 - Captures separate opt-in MCA defense form leads with express consent evidence.
 - Provides demo-ready seed data for investor and client walkthroughs.
+- Adds a policy-gated live acquisition framework for official downloads and
+  public searches where automation is explicitly allowed.
 
 ## Compliance Guardrails
 
@@ -25,6 +27,8 @@ buyer routing.
 - Do not create fake accounts.
 - Do not automate sources when source terms prohibit automation.
 - Live adapters are disabled by default with `ENABLE_LIVE_ADAPTERS=false`.
+- Source-specific policies are stored in `source_policies` and must be active
+  before any live acquisition code runs.
 - Every adapter supports `mock`, `manual_import`, and gated `live_if_allowed` modes.
 - Do not store SSNs, bank account numbers, full DOBs, or sensitive identifiers.
 - Sensitive values such as IP addresses are hashed before storage.
@@ -99,6 +103,10 @@ make logs-worker
 make logs-scheduler
 make run-worker
 make run-scheduler
+make live-harvest
+make live-harvest-dry-run
+make live-harvest-ny
+make live-harvest-fl
 make enqueue-demo-leads
 make enqueue-enrichment
 make sync-google-sheets
@@ -141,6 +149,17 @@ make export-form-leads-xlsx
 - `ENRICHMENT_AUTO_RUN=false`
 - `ENRICHMENT_MIN_SCORE`
 - `ENRICHMENT_GRADES`
+- `FL_SUNBIZ_DOWNLOADS_ENABLED=true`
+- `FL_SUNBIZ_SFTP_HOST`
+- `FL_SUNBIZ_SFTP_USERNAME`
+- `FL_SUNBIZ_SFTP_PASSWORD`
+- `FL_SUNBIZ_DOWNLOAD_MODE`
+- `FL_SUNBIZ_DOWNLOAD_DIR`
+- `NY_UCC_DATA_DOWNLOAD_ENABLED=false`
+- `NY_UCC_DATA_DOWNLOAD_ENDPOINT`
+- `NY_UCC_DATA_DOWNLOAD_USERNAME`
+- `NY_UCC_DATA_DOWNLOAD_PASSWORD`
+- `NY_UCC_DATA_DOWNLOAD_DIR`
 
 No real credentials are required for the local demo.
 
@@ -283,6 +302,53 @@ curl "http://localhost:8000/admin/jobs/queues"
 The dashboard subscribes to `GET /events/signals` for server-sent events and
 falls back to polling `GET /signals?since=...` if the browser loses the stream.
 
+## Live Source Acquisition
+
+Live acquisition is policy-gated and off by default. A source runs only when:
+
+- `ENABLE_LIVE_ADAPTERS=true`
+- the matching state flag is enabled, such as `ENABLE_LIVE_FL_ADAPTERS=true`
+- the `source_policies` row has `status=active` and `live_enabled=true`
+- the source does not require bypassing CAPTCHA, login, payment, or access controls
+
+Current policy defaults:
+
+- `FL_SUNBIZ_DOWNLOADS`: active official download path for Florida business
+  enrichment.
+- `FL_UCC_REGISTRY`: disabled until terms review confirms automated public
+  search is allowed.
+- `NY_UCC_SEARCH`: disabled until terms review confirms automated public search
+  is allowed.
+- `NY_UCC_DATA_DOWNLOAD`: placeholder for an authorized/licensed feed.
+- `NY_NYSCEF`: blocked; use manual import or authorized access.
+- `FL_EFILING_PORTAL`: blocked for automation; use manual import.
+
+Dashboard pages:
+
+- <http://localhost:8000/dashboard/source-policies>
+- <http://localhost:8000/dashboard/live-harvest>
+
+API endpoints:
+
+```bash
+curl "http://localhost:8000/admin/sources/policies"
+curl -X POST "http://localhost:8000/admin/sources/policies/FL_UCC_REGISTRY/check"
+curl -X POST "http://localhost:8000/admin/live-harvest/start?states=FL&target=100&dry_run=true"
+curl "http://localhost:8000/admin/live-harvest/status"
+```
+
+CLI:
+
+```bash
+cd backend
+python -m app.scripts.run_live_mca_harvest --dry-run --target 100
+python -m app.scripts.run_live_mca_harvest --state FL --target 100
+```
+
+Live harvest writes high-value exports to `exports/live_harvest/` when export is
+enabled. Google Sheets sync remains disabled unless `GOOGLE_SHEETS_ENABLED=true`
+and credentials are configured.
+
 ## Enrichment
 
 Enrichment is conservative by default. Google Places and the website crawler
@@ -344,6 +410,13 @@ Core endpoints:
 - `POST /admin/jobs/enqueue/enrichment`
 - `POST /admin/jobs/enqueue/enrichment-high-value`
 - `POST /admin/jobs/enqueue/sync-google-sheets`
+- `GET /admin/sources/policies`
+- `POST /admin/sources/policies/{source_code}/enable`
+- `POST /admin/sources/policies/{source_code}/disable`
+- `POST /admin/sources/policies/{source_code}/check`
+- `POST /admin/live-harvest/start`
+- `POST /admin/live-harvest/stop`
+- `GET /admin/live-harvest/status`
 - `GET /events/signals`
 
 ## Lead Exports
@@ -515,6 +588,8 @@ Planned source areas:
 - Florida E-Filing Portal manual import templates.
 - Florida Secured Transaction Registry manual import templates.
 - Florida Sunbiz data-download enrichment.
+- Policy-gated UCC live adapters where source terms permit automation.
+- Authorized New York UCC data-download connector.
 - County clerk manual import adapters for Miami-Dade, Broward, Palm Beach,
   Orange, Hillsborough, Pinellas, Duval, Polk, Lee, Collier, Seminole, and
   Osceola.
