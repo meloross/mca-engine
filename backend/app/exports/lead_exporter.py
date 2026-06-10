@@ -16,6 +16,7 @@ from app.models import (
     CaseDocument,
     ConsentEvent,
     FormLead,
+    LeadContact,
     LeadSignal,
     LeadSignalGrade,
     LeadSignalStatus,
@@ -64,6 +65,24 @@ PUBLIC_SIGNAL_COLUMNS = [
     "source_name",
     "source_url",
     "source_captured_at",
+    "owner_principal_name",
+    "owner_principal_title",
+    "owner_source",
+    "registered_agent_name",
+    "business_phone",
+    "phone_source",
+    "business_email",
+    "email_source",
+    "business_website",
+    "google_place_id",
+    "google_maps_url",
+    "enrichment_status",
+    "enrichment_confidence",
+    "enrichment_sources",
+    "enriched_at",
+    "do_not_contact",
+    "contact_consent",
+    "contact_allowed",
     "created_at",
     "updated_at",
 ]
@@ -355,6 +374,7 @@ def _signal_row(session: Session, signal: LeadSignal) -> dict[str, object]:
     ucc = session.get(UccFiling, signal.ucc_filing_id) if signal.ucc_filing_id else None
     raw_artifact = _source_raw_artifact(session, case=case, ucc=ucc)
     keyword_hits = _keyword_hits(session, case=case, ucc=ucc)
+    contacts = _lead_contacts(session, signal)
     return {
         "lead_reference_id": signal.lead_reference_id,
         "batch_number": signal.batch_number,
@@ -400,6 +420,24 @@ def _signal_row(session: Session, signal: LeadSignal) -> dict[str, object]:
             signal.source_captured_at
             or (raw_artifact.captured_at if raw_artifact else None)
         ),
+        "owner_principal_name": public_export_value(signal.owner_principal_name),
+        "owner_principal_title": public_export_value(signal.owner_principal_title),
+        "owner_source": signal.owner_source,
+        "registered_agent_name": public_export_value(signal.registered_agent_name),
+        "business_phone": signal.business_phone,
+        "phone_source": signal.phone_source,
+        "business_email": signal.business_email,
+        "email_source": signal.email_source,
+        "business_website": signal.business_website,
+        "google_place_id": signal.google_place_id,
+        "google_maps_url": signal.google_maps_url,
+        "enrichment_status": getattr(signal.enrichment_status, "value", "pending"),
+        "enrichment_confidence": signal.enrichment_confidence,
+        "enrichment_sources": signal.enrichment_sources,
+        "enriched_at": _datetime_value(signal.enriched_at),
+        "do_not_contact": signal.do_not_contact,
+        "contact_consent": any(contact.contact_consent for contact in contacts),
+        "contact_allowed": any(contact.contact_allowed for contact in contacts),
         "created_at": _datetime_value(signal.created_at),
         "updated_at": _datetime_value(signal.updated_at),
     }
@@ -547,6 +585,14 @@ def _keyword_hits(session: Session, *, case: Case | None, ucc: UccFiling | None)
     if ucc:
         return list(classify_text(ucc.collateral_text).keyword_hits)
     return []
+
+
+def _lead_contacts(session: Session, signal: LeadSignal) -> list[LeadContact]:
+    return list(
+        session.scalars(
+            select(LeadContact).where(LeadContact.lead_reference_id == signal.lead_reference_id)
+        ).all()
+    )
 
 
 def _consent_event(session: Session, form_lead: FormLead) -> ConsentEvent | None:

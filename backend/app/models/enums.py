@@ -79,3 +79,29 @@ class SequenceType(StrEnum):
     LEAD_REFERENCE = "lead_reference"
     FORM_LEAD = "form_lead"
     DELIVERY = "delivery"
+
+
+class EnrichmentStatus(StrEnum):
+    PENDING = "pending"
+    SUCCESS = "success"
+    PARTIAL = "partial"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class LeadContactType(StrEnum):
+    BUSINESS_PHONE = "business_phone"
+    BUSINESS_EMAIL = "business_email"
+    WEBSITE = "website"
+    OWNER_PRINCIPAL = "owner_principal"
+    REGISTERED_AGENT = "registered_agent"
+    MAILING_ADDRESS = "mailing_address"
+    PHYSICAL_ADDRESS = "physical_address"
+
+
+class ContactVerificationStatus(StrEnum):
+    UNVERIFIED = "unverified"
+    VERIFIED = "verified"
+    INVALID = "invalid"
+    RISKY = "risky"
+    UNKNOWN = "unknown"

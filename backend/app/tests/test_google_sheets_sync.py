@@ -11,6 +11,7 @@ from app.integrations.google_sheets.client import GoogleSheetsClient
 from app.integrations.google_sheets.mappers import (
     NO_CONSENT_REDACTION,
     map_delivery_to_delivery_log_row,
+    map_enrichment_attempt_to_log_row,
     map_form_lead_to_opt_in_row,
     map_ingestion_run_to_batch_log_row,
     map_lead_signal_to_master_row,
@@ -21,6 +22,7 @@ from app.models import (
     AccessMethod,
     BuyerAccount,
     DeliveryMethod,
+    EnrichmentAttempt,
     FormLead,
     IngestionRun,
     LeadDelivery,
@@ -39,14 +41,20 @@ def test_google_sheet_mappers_match_column_counts() -> None:
     run = _ingestion_run(source)
     buyer = _buyer()
     delivery = _delivery(signal, buyer)
+    enrichment_attempt = _enrichment_attempt(signal)
     form_lead = _form_lead(consent_to_contact=True)
     _set_sheet_attr(run, "source", source)
     _set_sheet_attr(signal, "keyword_hits", ["merchant cash advance"])
     _set_sheet_attr(delivery, "lead", signal)
     _set_sheet_attr(delivery, "buyer", buyer)
+    _set_sheet_attr(enrichment_attempt, "lead", signal)
     _set_sheet_attr(form_lead, "consented_at", datetime(2026, 6, 10, tzinfo=UTC))
 
-    assert len(map_lead_signal_to_master_row(signal)) == 42
+    assert len(map_lead_signal_to_master_row(signal)) == 58
+    assert len(map_enrichment_attempt_to_log_row(enrichment_attempt)) == 18
+    assert map_enrichment_attempt_to_log_row(enrichment_attempt)[0] == str(
+        enrichment_attempt.id
+    )
     assert len(map_ingestion_run_to_batch_log_row(run)) == 20
     assert len(map_source_to_source_registry_row(source)) == 13
     assert len(map_delivery_to_delivery_log_row(delivery)) == 13
@@ -247,6 +255,20 @@ def _delivery(signal: LeadSignal, buyer: BuyerAccount) -> LeadDelivery:
         delivery_method=DeliveryMethod.DASHBOARD,
         delivered_at=datetime(2026, 6, 10, tzinfo=UTC),
         accepted=True,
+    )
+
+
+def _enrichment_attempt(signal: LeadSignal) -> EnrichmentAttempt:
+    return EnrichmentAttempt(
+        id=uuid4(),
+        enrichment_run_id="ENRICH-20260610-000001",
+        lead_reference_id=signal.lead_reference_id,
+        provider="mock_enrichment",
+        query=signal.business_name,
+        status="success",
+        result_summary="Mock enrichment found a phone and website.",
+        started_at=datetime(2026, 6, 10, tzinfo=UTC),
+        finished_at=datetime(2026, 6, 10, tzinfo=UTC),
     )
 
 

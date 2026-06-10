@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from app.models import FormLead, IngestionRun, LeadDelivery, LeadSignal, Source
+from app.models import EnrichmentAttempt, FormLead, IngestionRun, LeadDelivery, LeadSignal, Source
 
 NO_CONSENT_REDACTION = "[REDACTED - NO CONSENT]"
 
@@ -57,6 +57,22 @@ def map_lead_signal_to_master_row(lead_signal: LeadSignal) -> list[str]:
         _string(lead_signal.summary),
         _datetime(lead_signal.created_at),
         _datetime(lead_signal.updated_at),
+        _string(lead_signal.owner_principal_name),
+        _string(lead_signal.owner_principal_title),
+        _string(lead_signal.owner_source),
+        _string(lead_signal.registered_agent_name),
+        _string(lead_signal.business_phone),
+        _string(lead_signal.phone_source),
+        _string(lead_signal.business_email),
+        _string(lead_signal.email_source),
+        _string(lead_signal.business_website),
+        _string(lead_signal.google_place_id),
+        _string(lead_signal.google_maps_url),
+        _enum(lead_signal.enrichment_status),
+        _string(lead_signal.enrichment_confidence),
+        _list(lead_signal.enrichment_sources),
+        _datetime(lead_signal.enriched_at),
+        _string(lead_signal.do_not_contact),
     ]
 
 
@@ -161,6 +177,31 @@ def map_form_lead_to_opt_in_row(form_lead: FormLead) -> list[str]:
         _string(_related(form_lead, "routed_buyer")),
         _string(form_lead.status),
         _datetime(form_lead.created_at),
+    ]
+
+
+def map_enrichment_attempt_to_log_row(attempt: EnrichmentAttempt) -> list[str]:
+    signal = _related(attempt, "lead")
+    enrichment = _related(attempt, "enrichment")
+    return [
+        _string(attempt.id),
+        _string(attempt.enrichment_run_id),
+        _string(attempt.lead_reference_id),
+        _string(getattr(signal, "batch_number", "")),
+        _string(attempt.provider),
+        _string(getattr(enrichment, "source_record_id", "")),
+        _string(attempt.query),
+        _string(getattr(enrichment, "business_address", "")),
+        _string(getattr(enrichment, "business_phone", "")),
+        _string(getattr(enrichment, "business_email", "")),
+        _string(getattr(enrichment, "business_website", "")),
+        _string(getattr(enrichment, "owner_principal_name", "")),
+        _string(getattr(enrichment, "confidence", "")),
+        _string(attempt.status),
+        _string(attempt.error),
+        _datetime(attempt.started_at),
+        _datetime(attempt.finished_at),
+        _string(attempt.result_summary),
     ]
 
 

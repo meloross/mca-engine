@@ -19,6 +19,7 @@ from app.adapters.florida import (
 from app.classifiers import classify_text
 from app.compliance import normalize_business_name
 from app.config import settings
+from app.events import publish_event, signal_event_payload
 from app.ids import next_batch_number, next_lead_reference_id
 from app.models import (
     AccessMethod,
@@ -649,6 +650,8 @@ def _upsert_signal(
         lead_signal.ucc_filing_id = source_entity_id
     session.add(lead_signal)
     session.flush()
+    if created:
+        publish_event("signal_created", signal_event_payload(lead_signal))
     return created
 
 

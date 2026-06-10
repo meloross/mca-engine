@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.classifiers import classify_text
 from app.compliance import normalize_business_name
 from app.db import SessionLocal
+from app.events import publish_event, signal_event_payload
 from app.ids import next_batch_number, next_delivery_id, next_lead_reference_id
 from app.models import (
     AccessMethod,
@@ -667,6 +668,7 @@ def _upsert_demo_signal(
             LeadSignal.funder_name == funder,
         )
     )
+    created = existing is None
     signal = existing or LeadSignal(
         lead_reference_id=next_lead_reference_id(session, state, signal_date),
         batch_number=next_batch_number(session, state, signal_date),
@@ -705,6 +707,8 @@ def _upsert_demo_signal(
     signal.source_captured_at = signal.source_captured_at or datetime.now(UTC)
     session.add(signal)
     session.commit()
+    if created:
+        publish_event("signal_created", signal_event_payload(signal))
 
 
 def _ensure_demo_deliveries(session: Session, *, target: int) -> None:

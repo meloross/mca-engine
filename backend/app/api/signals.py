@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -23,6 +23,7 @@ from app.models import (
     Case,
     CaseDocument,
     DeliveryMethod,
+    EnrichmentStatus,
     LeadDelivery,
     LeadSignal,
     LeadSignalGrade,
@@ -57,6 +58,14 @@ def list_signals(
     date_to: date | None = None,
     status: str | None = None,
     has_document_text: bool | None = None,
+    since: datetime | None = None,
+    enrichment_status: str | None = None,
+    has_phone: bool | None = None,
+    has_email: bool | None = None,
+    has_owner_principal: bool | None = None,
+    has_website: bool | None = None,
+    min_enrichment_confidence: int | None = None,
+    do_not_contact: bool | None = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
 ) -> dict[str, object]:
@@ -72,6 +81,14 @@ def list_signals(
         date_to=date_to,
         status=status,
         has_document_text=has_document_text,
+        since=since,
+        enrichment_status=enrichment_status,
+        has_phone=has_phone,
+        has_email=has_email,
+        has_owner_principal=has_owner_principal,
+        has_website=has_website,
+        min_enrichment_confidence=min_enrichment_confidence,
+        do_not_contact=do_not_contact,
     )
     total = session.scalar(select(func.count()).select_from(statement.subquery())) or 0
     offset = (page - 1) * page_size
@@ -309,6 +326,14 @@ def _filtered_signal_statement(
     date_to: date | None,
     status: str | None,
     has_document_text: bool | None,
+    since: datetime | None = None,
+    enrichment_status: str | None = None,
+    has_phone: bool | None = None,
+    has_email: bool | None = None,
+    has_owner_principal: bool | None = None,
+    has_website: bool | None = None,
+    min_enrichment_confidence: int | None = None,
+    do_not_contact: bool | None = None,
 ) -> Select[tuple[LeadSignal]]:
     statement = select(LeadSignal)
     if state:
@@ -341,4 +366,40 @@ def _filtered_signal_statement(
             statement = statement.where(
                 (LeadSignal.case_id.is_(None)) | (LeadSignal.case_id.not_in(document_case_ids))
             )
+    if since:
+        statement = statement.where(LeadSignal.created_at > since)
+    if enrichment_status:
+        statement = statement.where(
+            LeadSignal.enrichment_status == EnrichmentStatus(enrichment_status)
+        )
+    if has_phone is not None:
+        statement = statement.where(
+            LeadSignal.business_phone.is_not(None)
+            if has_phone
+            else LeadSignal.business_phone.is_(None)
+        )
+    if has_email is not None:
+        statement = statement.where(
+            LeadSignal.business_email.is_not(None)
+            if has_email
+            else LeadSignal.business_email.is_(None)
+        )
+    if has_owner_principal is not None:
+        statement = statement.where(
+            LeadSignal.owner_principal_name.is_not(None)
+            if has_owner_principal
+            else LeadSignal.owner_principal_name.is_(None)
+        )
+    if has_website is not None:
+        statement = statement.where(
+            LeadSignal.business_website.is_not(None)
+            if has_website
+            else LeadSignal.business_website.is_(None)
+        )
+    if min_enrichment_confidence is not None:
+        statement = statement.where(
+            LeadSignal.enrichment_confidence >= min_enrichment_confidence
+        )
+    if do_not_contact is not None:
+        statement = statement.where(LeadSignal.do_not_contact.is_(do_not_contact))
     return statement

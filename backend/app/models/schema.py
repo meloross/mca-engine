@@ -25,7 +25,10 @@ from app.models.base import Base
 from app.models.enums import (
     AccessMethod,
     ArtifactType,
+    ContactVerificationStatus,
     DeliveryMethod,
+    EnrichmentStatus,
+    LeadContactType,
     LeadSignalGrade,
     LeadSignalStatus,
     SequenceType,
@@ -294,6 +297,26 @@ class LeadSignal(TimestampMixin, Base):
     )
     master_sheet_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     master_sheet_row_number: Mapped[int | None] = mapped_column(Integer)
+    owner_principal_name: Mapped[str | None] = mapped_column(Text)
+    owner_principal_title: Mapped[str | None] = mapped_column(Text)
+    owner_source: Mapped[str | None] = mapped_column(Text)
+    registered_agent_name: Mapped[str | None] = mapped_column(Text)
+    business_phone: Mapped[str | None] = mapped_column(String(80))
+    phone_source: Mapped[str | None] = mapped_column(Text)
+    business_email: Mapped[str | None] = mapped_column(Text)
+    email_source: Mapped[str | None] = mapped_column(Text)
+    business_website: Mapped[str | None] = mapped_column(Text)
+    google_place_id: Mapped[str | None] = mapped_column(String(255))
+    google_maps_url: Mapped[str | None] = mapped_column(Text)
+    enrichment_status: Mapped[EnrichmentStatus] = mapped_column(
+        _enum(EnrichmentStatus, "enrichment_status"),
+        default=EnrichmentStatus.PENDING,
+        nullable=False,
+    )
+    enrichment_confidence: Mapped[int | None] = mapped_column(Integer)
+    enrichment_sources: Mapped[list[str]] = mapped_column(TextArray, default=list, nullable=False)
+    enriched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    do_not_contact: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     signal_type: Mapped[SignalType] = mapped_column(
         _enum(SignalType, "signal_type"), nullable=False
     )
@@ -321,6 +344,116 @@ class LeadSignal(TimestampMixin, Base):
     compliance_flags: Mapped[list[str]] = mapped_column(TextArray, default=list, nullable=False)
     source_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sources.id"), nullable=False)
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class BusinessEnrichment(TimestampMixin, Base):
+    __tablename__ = "business_enrichments"
+    __table_args__ = (
+        Index("ix_business_enrichments_lead_reference_id", "lead_reference_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(IdColumn, primary_key=True, default=uuid.uuid4)
+    lead_signal_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("lead_signals.id"))
+    lead_reference_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    normalized_business_name: Mapped[str] = mapped_column(Text, nullable=False)
+    state: Mapped[str] = mapped_column(String(2), nullable=False)
+    county: Mapped[str | None] = mapped_column(String(120))
+    source_provider: Mapped[str] = mapped_column(String(120), nullable=False)
+    source_record_id: Mapped[str | None] = mapped_column(String(255))
+    google_place_id: Mapped[str | None] = mapped_column(String(255))
+    google_maps_url: Mapped[str | None] = mapped_column(Text)
+    business_website: Mapped[str | None] = mapped_column(Text)
+    business_phone: Mapped[str | None] = mapped_column(String(80))
+    business_email: Mapped[str | None] = mapped_column(Text)
+    owner_principal_name: Mapped[str | None] = mapped_column(Text)
+    owner_principal_title: Mapped[str | None] = mapped_column(Text)
+    registered_agent_name: Mapped[str | None] = mapped_column(Text)
+    registered_agent_address: Mapped[str | None] = mapped_column(Text)
+    business_address: Mapped[str | None] = mapped_column(Text)
+    confidence: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    status: Mapped[EnrichmentStatus] = mapped_column(
+        _enum(EnrichmentStatus, "enrichment_status"), nullable=False
+    )
+    error: Mapped[str | None] = mapped_column(Text)
+    raw_response_path: Mapped[str | None] = mapped_column(Text)
+    source_url: Mapped[str | None] = mapped_column(Text)
+    enriched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class LeadContact(TimestampMixin, Base):
+    __tablename__ = "lead_contacts"
+    __table_args__ = (
+        Index("ix_lead_contacts_lead_reference_id", "lead_reference_id"),
+        Index(
+            "uq_lead_contacts_reference_type_value",
+            "lead_reference_id",
+            "contact_type",
+            "normalized_value",
+            unique=True,
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(IdColumn, primary_key=True, default=uuid.uuid4)
+    lead_signal_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("lead_signals.id"))
+    lead_reference_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    contact_type: Mapped[LeadContactType] = mapped_column(
+        _enum(LeadContactType, "lead_contact_type"), nullable=False
+    )
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_value: Mapped[str] = mapped_column(Text, nullable=False)
+    source_provider: Mapped[str] = mapped_column(String(120), nullable=False)
+    source_url: Mapped[str | None] = mapped_column(Text)
+    source_category: Mapped[str | None] = mapped_column(String(120))
+    confidence: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    verification_status: Mapped[ContactVerificationStatus] = mapped_column(
+        _enum(ContactVerificationStatus, "contact_verification_status"),
+        default=ContactVerificationStatus.UNVERIFIED,
+        nullable=False,
+    )
+    is_opt_in: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    contact_consent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    contact_allowed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    do_not_contact: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    found_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    last_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class EnrichmentRun(Base):
+    __tablename__ = "enrichment_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(IdColumn, primary_key=True, default=uuid.uuid4)
+    enrichment_run_id: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
+    batch_number: Mapped[str | None] = mapped_column(String(40))
+    provider: Mapped[str] = mapped_column(String(120), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    records_attempted: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    records_succeeded: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    records_partial: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    records_failed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+
+
+class EnrichmentAttempt(Base):
+    __tablename__ = "enrichment_attempts"
+
+    id: Mapped[uuid.UUID] = mapped_column(IdColumn, primary_key=True, default=uuid.uuid4)
+    enrichment_run_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    lead_reference_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    provider: Mapped[str] = mapped_column(String(120), nullable=False)
+    query: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(40), nullable=False)
+    result_summary: Mapped[str | None] = mapped_column(Text)
+    error: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class BuyerAccount(Base):

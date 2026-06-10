@@ -62,6 +62,24 @@ class GoogleSheetsClient:
         )
         return cast(dict[str, Any], response)
 
+    def update_row(self, tab_name: str, row_number: int, row: list[str]) -> dict[str, Any]:
+        if not self.enabled:
+            return {"updatedRows": 0}
+        range_name = f"{tab_name}!A{row_number}:BF{row_number}"
+        response = (
+            self._sheets()
+            .spreadsheets()
+            .values()
+            .update(
+                spreadsheetId=self.spreadsheet_id,
+                range=range_name,
+                valueInputOption="USER_ENTERED",
+                body={"values": [row]},
+            )
+            .execute()
+        )
+        return cast(dict[str, Any], response)
+
     def _sheets(self) -> SheetsServiceProtocol:
         if self._service is None:
             self._service = _build_service()

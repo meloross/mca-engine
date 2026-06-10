@@ -27,6 +27,16 @@ class Settings(BaseSettings):
     google_service_account_json: str | None = None
     google_application_credentials: str | None = None
     mca_master_spreadsheet_id: str = "1gWcjO9JayZn2QzJXKFYNnToI7TrWWJC0udQhkkTu8pU"
+    google_places_enabled: bool = False
+    google_places_api_key: str | None = None
+    google_places_max_requests_per_minute: int = 60
+    google_places_min_confidence: int = 75
+    website_crawler_enabled: bool = False
+    website_crawler_max_pages: int = 5
+    website_crawler_timeout_seconds: int = 10
+    enrichment_auto_run: bool = False
+    enrichment_min_score: int = 75
+    enrichment_grades: str = "A_PLUS,A"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

@@ -88,12 +88,21 @@ See [docs/VSCODE_SETUP.md](docs/VSCODE_SETUP.md) for a beginner-friendly guide.
 
 ```bash
 make install   # Install backend package and dev tools locally
-make up        # Build and start backend, postgres, and redis
+make up        # Build and start backend, postgres, redis, worker, and scheduler
 make down      # Stop the local stack
 make migrate   # Run Alembic migrations inside the backend container
 make seed      # Seed demo data inside the backend container
 make test      # Run pytest locally
 make lint      # Run Ruff and Mypy locally
+make logs      # Follow backend logs
+make logs-worker
+make logs-scheduler
+make run-worker
+make run-scheduler
+make enqueue-demo-leads
+make enqueue-enrichment
+make sync-google-sheets
+make live-demo # Queue demo leads for the live dashboard feed
 make demo      # Reset DB, migrate, seed, and print demo walkthrough data
 make export-csv
 make export-xlsx
@@ -122,6 +131,16 @@ make export-form-leads-xlsx
 - `GOOGLE_SERVICE_ACCOUNT_JSON`
 - `GOOGLE_APPLICATION_CREDENTIALS`
 - `MCA_MASTER_SPREADSHEET_ID=1gWcjO9JayZn2QzJXKFYNnToI7TrWWJC0udQhkkTu8pU`
+- `GOOGLE_PLACES_ENABLED=false`
+- `GOOGLE_PLACES_API_KEY`
+- `GOOGLE_PLACES_MAX_REQUESTS_PER_MINUTE`
+- `GOOGLE_PLACES_MIN_CONFIDENCE`
+- `WEBSITE_CRAWLER_ENABLED=false`
+- `WEBSITE_CRAWLER_MAX_PAGES`
+- `WEBSITE_CRAWLER_TIMEOUT_SECONDS`
+- `ENRICHMENT_AUTO_RUN=false`
+- `ENRICHMENT_MIN_SCORE`
+- `ENRICHMENT_GRADES`
 
 No real credentials are required for the local demo.
 
@@ -221,6 +240,68 @@ python -m pytest app/tests/test_mca_classifier.py app/tests/test_lead_scoring.py
 python -m pytest app/tests/test_form_leads.py
 ```
 
+## Continuous Job Engine
+
+Docker Compose starts five services:
+
+- `backend`: FastAPI dashboard, API, SSE stream, and admin actions.
+- `postgres`: system-of-record database.
+- `redis`: RQ queue broker and lightweight event fanout.
+- `worker`: runs queued ingestion, enrichment, export, and sync jobs.
+- `scheduler`: records scheduler heartbeats and enqueues recurring demo jobs.
+
+Local commands:
+
+```bash
+make up
+make logs-worker
+make logs-scheduler
+make enqueue-demo-leads
+make enqueue-enrichment
+make live-demo
+```
+
+CLI equivalents:
+
+```bash
+cd backend
+python -m app.scripts.worker
+python -m app.scripts.scheduler
+python -m app.scripts.enqueue_jobs --job demo_leads --count 10 --interval-seconds 5
+python -m app.scripts.enqueue_jobs --job enrichment
+python -m app.scripts.enqueue_jobs --job sync_google_sheets
+```
+
+Job health endpoints:
+
+```bash
+curl "http://localhost:8000/admin/jobs/status"
+curl "http://localhost:8000/admin/jobs/recent"
+curl "http://localhost:8000/admin/jobs/queues"
+```
+
+The dashboard subscribes to `GET /events/signals` for server-sent events and
+falls back to polling `GET /signals?since=...` if the browser loses the stream.
+
+## Enrichment
+
+Enrichment is conservative by default. Google Places and the website crawler
+are disabled until explicitly enabled in `.env`, while the mock, Florida
+Sunbiz-style, and New York registry-style providers support demo data without
+real credentials.
+
+The enrichment pipeline stores:
+
+- `business_enrichments`
+- `lead_contacts`
+- `enrichment_runs`
+- `enrichment_attempts`
+
+Signals expose enrichment filters for owner/principal, registered agent, phone,
+email, website, Google Place ID, enrichment confidence, status, and
+do-not-contact state. Contact rows carry source provider, source URL,
+confidence, consent, and allowed-contact flags.
+
 ## API Docs
 
 FastAPI docs are available at:
@@ -251,10 +332,19 @@ Core endpoints:
 - `GET /admin/sync/google-sheets/status`
 - `POST /admin/sync/google-sheets/all`
 - `POST /admin/sync/google-sheets/leads`
+- `POST /admin/sync/google-sheets/enrichment-log`
 - `POST /admin/sync/google-sheets/batches`
 - `POST /admin/sync/google-sheets/sources`
 - `POST /admin/sync/google-sheets/deliveries`
 - `POST /admin/sync/google-sheets/opt-in-leads`
+- `GET /admin/jobs/status`
+- `GET /admin/jobs/recent`
+- `GET /admin/jobs/queues`
+- `POST /admin/jobs/enqueue/demo-leads`
+- `POST /admin/jobs/enqueue/enrichment`
+- `POST /admin/jobs/enqueue/enrichment-high-value`
+- `POST /admin/jobs/enqueue/sync-google-sheets`
+- `GET /events/signals`
 
 ## Lead Exports
 
@@ -324,6 +414,7 @@ Tabs supported by the sync service:
 - `Source_Registry`
 - `Buyer_Delivery_Log`
 - `Opt_In_Leads`
+- `Enrichment_Log`
 
 Sync is disabled by default. To enable it:
 
@@ -343,6 +434,7 @@ python -m app.scripts.sync_google_sheets --all
 python -m app.scripts.sync_google_sheets --leads
 python -m app.scripts.sync_google_sheets --batches
 python -m app.scripts.sync_google_sheets --opt-in-leads
+python -m app.scripts.enqueue_jobs --job sync_google_sheets
 ```
 
 API examples:
@@ -351,6 +443,7 @@ API examples:
 curl "http://localhost:8000/admin/sync/google-sheets/status"
 curl -X POST "http://localhost:8000/admin/sync/google-sheets/all"
 curl -X POST "http://localhost:8000/admin/sync/google-sheets/leads"
+curl -X POST "http://localhost:8000/admin/sync/google-sheets/enrichment-log"
 ```
 
 The sync service deduplicates by column A IDs before appending:
@@ -360,6 +453,7 @@ The sync service deduplicates by column A IDs before appending:
 - Source ID for `Source_Registry`
 - Delivery ID for `Buyer_Delivery_Log`
 - Form Lead Ref ID for `Opt_In_Leads`
+- Enrichment attempt ID for `Enrichment_Log`
 
 Successful lead and opt-in syncs set `exported_to_master_sheet`,
 `master_sheet_synced_at`, and `master_sheet_row_number`. Failed syncs do not

@@ -27,5 +27,6 @@ class GoogleSheetsSyncStatus:
     unsynced_batches_count: int
     unsynced_deliveries_count: int
     unsynced_opt_in_leads_count: int
+    unsynced_enrichment_updates_count: int
     last_successful_sync: str | None
     last_error: str | None

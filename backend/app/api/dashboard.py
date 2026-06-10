@@ -35,6 +35,13 @@ def dashboard_signals(
     funder_name: str | None = None,
     business_name: str | None = None,
     status: str | None = None,
+    enrichment_status: str | None = None,
+    has_phone: bool | None = None,
+    has_email: bool | None = None,
+    has_owner_principal: bool | None = None,
+    has_website: bool | None = None,
+    min_enrichment_confidence: int | None = None,
+    do_not_contact: bool | None = None,
 ) -> HTMLResponse:
     statement = (
         _filtered_signal_statement(
@@ -49,6 +56,13 @@ def dashboard_signals(
             date_to=None,
             status=status,
             has_document_text=None,
+            enrichment_status=enrichment_status,
+            has_phone=has_phone,
+            has_email=has_email,
+            has_owner_principal=has_owner_principal,
+            has_website=has_website,
+            min_enrichment_confidence=min_enrichment_confidence,
+            do_not_contact=do_not_contact,
         )
         .order_by(LeadSignal.signal_date.desc(), LeadSignal.score.desc())
         .limit(100)
@@ -80,6 +94,17 @@ def _signals_page(signals: list[dict[str, Any]], params: dict[str, Any]) -> str:
         _signal_row(signal)
         for signal in signals
     )
+    enrichment_status_filter = _select(
+        "enrichment_status",
+        params.get("enrichment_status"),
+        ["", "pending", "success", "partial", "failed", "skipped"],
+    )
+    min_enrichment_filter = _input(
+        "min_enrichment_confidence",
+        params.get("min_enrichment_confidence"),
+        "Min enrichment",
+        "number",
+    )
     return f"""
     <section class="toolbar">
       <form method="get" action="/dashboard" class="filters">
@@ -89,6 +114,13 @@ def _signals_page(signals: list[dict[str, Any]], params: dict[str, Any]) -> str:
         {_input("min_score", params.get("min_score"), "Min score", "number")}
         {_input("funder_name", params.get("funder_name"), "Funder")}
         {_input("business_name", params.get("business_name"), "Business")}
+        {enrichment_status_filter}
+        {_select("has_phone", params.get("has_phone"), ["", "true", "false"])}
+        {_select("has_email", params.get("has_email"), ["", "true", "false"])}
+        {_select("has_owner_principal", params.get("has_owner_principal"), ["", "true", "false"])}
+        {_select("has_website", params.get("has_website"), ["", "true", "false"])}
+        {min_enrichment_filter}
+        {_select("do_not_contact", params.get("do_not_contact"), ["", "true", "false"])}
         {
         _select(
             "status",
@@ -102,13 +134,30 @@ def _signals_page(signals: list[dict[str, Any]], params: dict[str, Any]) -> str:
       </form>
       {_export_links(params)}
       <nav class="exports">
+        <span id="live-status" class="pill warn">Live: connecting</span>
+        <button type="button" onclick="enqueueJob('/admin/jobs/enqueue/demo-leads')">
+          Enqueue Demo Leads
+        </button>
+        <button type="button" onclick="enqueueJob('/admin/jobs/enqueue/enrichment')">
+          Enrich Current Filter
+        </button>
+        <button type="button" onclick="enqueueJob('/admin/jobs/enqueue/enrichment-high-value')">
+          Enrich All A/A+ Leads
+        </button>
         <button type="button" onclick="syncSheet('/admin/sync/google-sheets/all')">
           Sync All to Google Sheet
+        </button>
+        <button type="button" onclick="syncSheet('/admin/sync/google-sheets/enrichment-log')">
+          Sync Enrichment to Google Sheet
         </button>
         <button type="button" onclick="syncSheet('/admin/sync/google-sheets/leads')">
           Sync Current Filter to Google Sheet
         </button>
       </nav>
+    </section>
+    <section class="live-feed">
+      <h2>Live Feed</h2>
+      <ol id="live-feed"></ol>
     </section>
     <table>
       <thead>
@@ -117,19 +166,96 @@ def _signals_page(signals: list[dict[str, Any]], params: dict[str, Any]) -> str:
           <th>Grade</th><th>Score</th><th>Funder</th><th>Type</th><th>Status</th><th>Date</th>
           <th>Source Name</th><th>Source URL</th><th>Captured</th><th>Sheet Status</th>
           <th>Exported</th><th>Last Synced</th>
+          <th>Owner/Principal</th><th>Registered Agent</th><th>Phone</th><th>Email</th>
+          <th>Website</th><th>Google Place ID</th><th>Enrichment</th><th>Confidence</th>
+          <th>Enriched At</th><th>Do Not Contact</th>
         </tr>
       </thead>
-      <tbody>{rows or '<tr><td colspan="17">No signals</td></tr>'}</tbody>
+      <tbody id="signals-body">{rows or '<tr><td colspan="27">No signals</td></tr>'}</tbody>
     </table>
     <script>
+      let lastSeenCreatedAt = null;
       async function syncSheet(path) {{
         const response = await fetch(path, {{method: 'POST'}});
         alert(JSON.stringify(await response.json(), null, 2));
         location.reload();
       }}
+      async function enqueueJob(path) {{
+        const response = await fetch(path, {{method: 'POST'}});
+        toast('Job queued: ' + JSON.stringify(await response.json()));
+      }}
       async function copyText(value) {{
         await navigator.clipboard.writeText(value);
       }}
+      function setLiveStatus(label, cls) {{
+        const status = document.getElementById('live-status');
+        status.textContent = label;
+        status.className = 'pill ' + cls;
+      }}
+      function addFeed(eventType, payload) {{
+        const feed = document.getElementById('live-feed');
+        const item = document.createElement('li');
+        item.textContent = `${{new Date().toLocaleTimeString()}} ${{eventType}} `
+          + `${{payload.lead_reference_id || ''}} ${{payload.business_name || ''}} `
+          + `${{payload.grade || ''}}/${{payload.score || ''}}`;
+        feed.prepend(item);
+        while (feed.children.length > 20) feed.lastChild.remove();
+      }}
+      function toast(message) {{
+        const note = document.createElement('div');
+        note.className = 'toast';
+        note.textContent = message;
+        document.body.appendChild(note);
+        setTimeout(() => note.remove(), 3500);
+      }}
+      function insertSignalRow(payload) {{
+        const body = document.getElementById('signals-body');
+        const row = document.createElement('tr');
+        row.className = payload.grade === 'A_PLUS' || payload.grade === 'A'
+          ? 'live-new high-priority' : 'live-new';
+        const values = [
+          payload.lead_reference_id, payload.batch_number, payload.business_name,
+          payload.state, payload.county, payload.grade, payload.score, payload.funder_name,
+          payload.signal_type, payload.status, '', '', '', '', '', '', '', '', '', '', '', '',
+          '', '', '', '', ''
+        ];
+        row.innerHTML = values.map(value => `<td>${{value || ''}}</td>`).join('');
+        body.prepend(row);
+        setTimeout(() => row.classList.remove('live-new', 'high-priority'), 10000);
+      }}
+      function startEvents() {{
+        const source = new EventSource('/events/signals');
+        source.onopen = () => setLiveStatus('Live: connected', 'ok');
+        source.onerror = () => {{
+          setLiveStatus('Live: reconnecting', 'warn');
+          pollFallback();
+        }};
+        const events = ['signal_created', 'signal_updated', 'enrichment_started',
+          'enrichment_completed', 'google_sheet_synced', 'job_failed'];
+        for (const eventType of events) {{
+          source.addEventListener(eventType, event => {{
+            const envelope = JSON.parse(event.data);
+            const payload = envelope.payload || envelope;
+            addFeed(eventType, payload);
+            if (eventType === 'signal_created') {{
+              insertSignalRow(payload);
+              lastSeenCreatedAt = payload.created_at || new Date().toISOString();
+              toast('New signal: ' + (payload.lead_reference_id || ''));
+            }}
+          }});
+        }}
+      }}
+      async function pollFallback() {{
+        if (!lastSeenCreatedAt) return;
+        const response = await fetch('/signals?since=' + encodeURIComponent(lastSeenCreatedAt));
+        const payload = await response.json();
+        for (const signal of payload.items || []) {{
+          insertSignalRow(signal);
+          lastSeenCreatedAt = signal.created_at || lastSeenCreatedAt;
+        }}
+      }}
+      startEvents();
+      setInterval(pollFallback, 5000);
     </script>
     """
 
@@ -137,6 +263,7 @@ def _signals_page(signals: list[dict[str, Any]], params: dict[str, Any]) -> str:
 def _signal_row(signal: dict[str, Any]) -> str:
     lead_reference_id = _h(signal["lead_reference_id"])
     batch_number = _h(signal["batch_number"])
+    value = signal.get
     return f"""
         <tr>
           <td>
@@ -147,21 +274,31 @@ def _signal_row(signal: dict[str, Any]) -> str:
             <code>{batch_number}</code>
             <button class="mini" onclick="copyText('{batch_number}')">Copy</button>
           </td>
-          <td><a href="/dashboard/signals/{_h(signal["id"])}">{_h(signal["business_name"])}</a></td>
-          <td>{_h(signal["state"])}</td>
-          <td>{_h(signal["county"])}</td>
-          <td>{_h(signal["grade"])}</td>
-          <td>{_h(signal["score"])}</td>
-          <td>{_h(signal["funder_name"])}</td>
-          <td>{_h(signal["signal_type"])}</td>
-          <td>{_h(signal["status"])}</td>
-          <td>{_h(signal["signal_date"])}</td>
-          <td>{_h(signal["source_name"])}</td>
-          <td><a href="{_h(signal["source_url"])}" rel="noreferrer">Source</a></td>
-          <td>{_h(signal["source_captured_at"])}</td>
-          <td>{_h(signal["master_sheet_sync_status"])}</td>
-          <td>{_h(signal["exported_to_master_sheet"])}</td>
-          <td>{_h(signal["master_sheet_synced_at"])}</td>
+          <td><a href="/dashboard/signals/{_h(value("id"))}">{_h(value("business_name"))}</a></td>
+          <td>{_h(value("state"))}</td>
+          <td>{_h(value("county"))}</td>
+          <td>{_h(value("grade"))}</td>
+          <td>{_h(value("score"))}</td>
+          <td>{_h(value("funder_name"))}</td>
+          <td>{_h(value("signal_type"))}</td>
+          <td>{_h(value("status"))}</td>
+          <td>{_h(value("signal_date"))}</td>
+          <td>{_h(value("source_name"))}</td>
+          <td>{_link(value("source_url"))}</td>
+          <td>{_h(value("source_captured_at"))}</td>
+          <td>{_h(value("master_sheet_sync_status"))}</td>
+          <td>{_h(value("exported_to_master_sheet"))}</td>
+          <td>{_h(value("master_sheet_synced_at"))}</td>
+          <td>{_h(value("owner_principal_name"))}</td>
+          <td>{_h(value("registered_agent_name"))}</td>
+          <td>{_h(value("business_phone"))}</td>
+          <td>{_h(value("business_email"))}</td>
+          <td>{_link(value("business_website"))}</td>
+          <td>{_h(value("google_place_id"))}</td>
+          <td>{_h(value("enrichment_status"))}</td>
+          <td>{_h(value("enrichment_confidence"))}</td>
+          <td>{_h(value("enriched_at"))}</td>
+          <td>{_h(value("do_not_contact"))}</td>
         </tr>
         """
 
@@ -199,6 +336,13 @@ def _filter_query(params: dict[str, Any]) -> str:
         "funder_name",
         "business_name",
         "status",
+        "enrichment_status",
+        "has_phone",
+        "has_email",
+        "has_owner_principal",
+        "has_website",
+        "min_enrichment_confidence",
+        "do_not_contact",
     }
     return urlencode(
         {
@@ -233,9 +377,13 @@ def _signal_detail_page(signal: dict[str, Any], buyers: list[dict[str, Any]]) ->
       {
         _panel(
             "Signal",
-            _key_values(signal, skip={"case", "ucc_filing", "deliveries", "audit_log"}),
+            _key_values(
+                signal,
+                skip={"case", "ucc_filing", "deliveries", "audit_log", "lead_contacts"},
+            ),
         )
     }
+      {_panel("Lead Contacts", _contact_list(signal.get("lead_contacts", [])))}
       {_panel("MCA Keyword Hits", _list(signal.get("keyword_hits", [])))}
       {_panel("Score Explanation", _list(signal.get("score_reasons", [])))}
       {_panel("Compliance Flags", _list(signal.get("compliance_flags", [])))}
@@ -372,6 +520,32 @@ def _list(values: object) -> str:
     return "<ul>" + "".join(f"<li>{_h(value)}</li>" for value in values) + "</ul>"
 
 
+def _contact_list(values: object) -> str:
+    if not isinstance(values, list) or not values:
+        return "<p>None</p>"
+    items = ""
+    for contact in values:
+        if not isinstance(contact, dict):
+            continue
+        items += (
+            f"<li><strong>{_h(contact.get('contact_type'))}</strong>: "
+            f"{_h(contact.get('value'))} "
+            f"<small>{_h(contact.get('source_provider'))} "
+            f"confidence={_h(contact.get('confidence'))} "
+            f"consent={_h(contact.get('contact_consent'))} "
+            f"allowed={_h(contact.get('contact_allowed'))} "
+            f"dnc={_h(contact.get('do_not_contact'))}</small></li>"
+        )
+    return f"<ul>{items}</ul>" if items else "<p>None</p>"
+
+
+def _link(value: object) -> str:
+    if not value:
+        return ""
+    escaped = _h(value)
+    return f'<a href="{escaped}" rel="noreferrer">{escaped}</a>'
+
+
 def _h(value: object) -> str:
     return escape("" if value is None else str(value), quote=True)
 
@@ -396,6 +570,17 @@ def _css() -> str:
             "code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }",
             ".filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }",
             ".exports { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 16px; }",
+            ".live-feed { background: white; border: 1px solid #e4e7ec;",
+            "  padding: 12px; margin-bottom: 14px; }",
+            ".live-feed h2 { margin: 0 0 8px; font-size: 15px; }",
+            ".pill { display: inline-block; padding: 8px 10px; border-radius: 999px; }",
+            ".pill.ok { background: #e8f5e9; color: #1b5e20; }",
+            ".pill.warn { background: #fff8e1; color: #8a5a00; }",
+            ".live-new { animation: flash 10s ease-out; }",
+            ".high-priority { background: #fff3cd; }",
+            ".toast { position: fixed; right: 18px; bottom: 18px; background: #17202a;",
+            "  color: white; padding: 10px 12px; border-radius: 6px; }",
+            "@keyframes flash { from { background: #dff7e7; } to { background: white; } }",
             ".detail-head { display: flex; justify-content: space-between;",
             "  gap: 16px; align-items: start; }",
             ".score { background: white; padding: 16px; min-width: 120px;",

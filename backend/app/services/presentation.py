@@ -13,6 +13,7 @@ from app.models import (
     BuyerAccount,
     Case,
     CaseDocument,
+    LeadContact,
     LeadDelivery,
     LeadSignal,
     Source,
@@ -85,6 +86,22 @@ def serialize_signal(
             signal.master_sheet_synced_at.isoformat() if signal.master_sheet_synced_at else None
         ),
         "master_sheet_row_number": signal.master_sheet_row_number,
+        "owner_principal_name": redact_sensitive(signal.owner_principal_name),
+        "owner_principal_title": redact_sensitive(signal.owner_principal_title),
+        "owner_source": signal.owner_source,
+        "registered_agent_name": redact_sensitive(signal.registered_agent_name),
+        "business_phone": signal.business_phone,
+        "phone_source": signal.phone_source,
+        "business_email": signal.business_email,
+        "email_source": signal.email_source,
+        "business_website": signal.business_website,
+        "google_place_id": signal.google_place_id,
+        "google_maps_url": signal.google_maps_url,
+        "enrichment_status": getattr(signal.enrichment_status, "value", "pending"),
+        "enrichment_confidence": signal.enrichment_confidence,
+        "enrichment_sources": signal.enrichment_sources,
+        "enriched_at": signal.enriched_at.isoformat() if signal.enriched_at else None,
+        "do_not_contact": signal.do_not_contact,
         "created_at": signal.created_at.isoformat() if signal.created_at else None,
         "updated_at": signal.updated_at.isoformat() if signal.updated_at else None,
         "keyword_hits": explanation["keyword_hits"],
@@ -106,6 +123,14 @@ def serialize_signal(
                 select(AuditLog)
                 .where(AuditLog.entity_type == "lead_signal", AuditLog.entity_id == str(signal.id))
                 .order_by(AuditLog.created_at.desc())
+            )
+        ]
+        payload["lead_contacts"] = [
+            serialize_lead_contact(contact)
+            for contact in session.scalars(
+                select(LeadContact)
+                .where(LeadContact.lead_reference_id == signal.lead_reference_id)
+                .order_by(LeadContact.confidence.desc(), LeadContact.created_at.desc())
             )
         ]
     return payload
@@ -201,6 +226,28 @@ def serialize_delivery(delivery: LeadDelivery) -> dict[str, Any]:
         "delivered_at": delivery.delivered_at.isoformat() if delivery.delivered_at else None,
         "accepted": delivery.accepted,
         "rejected_reason": redact_sensitive(delivery.rejected_reason),
+    }
+
+
+def serialize_lead_contact(contact: LeadContact) -> dict[str, Any]:
+    return {
+        "id": str(contact.id),
+        "lead_reference_id": contact.lead_reference_id,
+        "contact_type": contact.contact_type.value,
+        "value": redact_sensitive(contact.value),
+        "source_provider": contact.source_provider,
+        "source_url": contact.source_url,
+        "source_category": contact.source_category,
+        "confidence": contact.confidence,
+        "verification_status": contact.verification_status.value,
+        "is_opt_in": contact.is_opt_in,
+        "contact_consent": contact.contact_consent,
+        "contact_allowed": contact.contact_allowed,
+        "do_not_contact": contact.do_not_contact,
+        "found_at": contact.found_at.isoformat() if contact.found_at else None,
+        "last_verified_at": (
+            contact.last_verified_at.isoformat() if contact.last_verified_at else None
+        ),
     }
 
 

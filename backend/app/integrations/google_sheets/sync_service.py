@@ -11,6 +11,7 @@ from app.classifiers import classify_text
 from app.integrations.google_sheets.client import GoogleSheetsClient
 from app.integrations.google_sheets.mappers import (
     map_delivery_to_delivery_log_row,
+    map_enrichment_attempt_to_log_row,
     map_form_lead_to_opt_in_row,
     map_ingestion_run_to_batch_log_row,
     map_lead_signal_to_master_row,
@@ -19,10 +20,12 @@ from app.integrations.google_sheets.mappers import (
 from app.integrations.google_sheets.schemas import GoogleSheetsSyncResult, GoogleSheetsSyncStatus
 from app.models import (
     AuditLog,
+    BusinessEnrichment,
     BuyerAccount,
     Case,
     CaseDocument,
     ConsentEvent,
+    EnrichmentAttempt,
     FormLead,
     IngestionRun,
     LeadDelivery,
@@ -36,6 +39,7 @@ BATCH_LOG_TAB = "Batch_Log"
 SOURCE_REGISTRY_TAB = "Source_Registry"
 BUYER_DELIVERY_LOG_TAB = "Buyer_Delivery_Log"
 OPT_IN_LEADS_TAB = "Opt_In_Leads"
+ENRICHMENT_LOG_TAB = "Enrichment_Log"
 
 RecordT = TypeVar("RecordT")
 
@@ -58,6 +62,7 @@ class GoogleSheetsSyncService:
             unsynced_batches_count=self._count_batches(),
             unsynced_deliveries_count=self._count_deliveries(),
             unsynced_opt_in_leads_count=self._count_unsynced_form_leads(),
+            unsynced_enrichment_updates_count=self._count_unsynced_enrichment_updates(),
             last_successful_sync=self._last_audit_created_at("google_sheets_sync_success"),
             last_error=self._last_error(),
         )
@@ -66,20 +71,23 @@ class GoogleSheetsSyncService:
         signals = list(
             self.session.scalars(
                 select(LeadSignal)
-                .where(LeadSignal.exported_to_master_sheet.is_(False))
+                .where(
+                    (LeadSignal.exported_to_master_sheet.is_(False))
+                    | (
+                        LeadSignal.enriched_at.is_not(None)
+                        & (
+                            (LeadSignal.master_sheet_synced_at.is_(None))
+                            | (LeadSignal.master_sheet_synced_at < LeadSignal.enriched_at)
+                        )
+                    )
+                )
                 .order_by(LeadSignal.created_at.asc())
                 .limit(limit)
             ).all()
         )
         for signal in signals:
             self._attach_lead_relations(signal)
-        return self._append_missing(
-            tab_name=LEAD_MASTER_TAB,
-            records=signals,
-            key_getter=lambda signal: signal.lead_reference_id,
-            mapper=map_lead_signal_to_master_row,
-            mark_synced=self._mark_signal_synced,
-        )
+        return self._sync_lead_master_rows(signals)
 
     def sync_batch_log_to_master_sheet(self, limit: int = 100) -> GoogleSheetsSyncResult:
         runs = list(
@@ -153,8 +161,95 @@ class GoogleSheetsSyncService:
             "sources": self.sync_sources_to_master_sheet(),
             "deliveries": self.sync_delivery_log_to_master_sheet(),
             "opt_in_leads": self.sync_opt_in_leads_to_master_sheet(),
+            "enrichment_log": self.sync_enrichment_log_to_master_sheet(),
         }
         return results
+
+    def sync_enrichment_log_to_master_sheet(self, limit: int = 500) -> GoogleSheetsSyncResult:
+        attempts = list(
+            self.session.scalars(
+                select(EnrichmentAttempt).order_by(EnrichmentAttempt.started_at.desc()).limit(limit)
+            ).all()
+        )
+        for attempt in attempts:
+            lead = self.session.scalar(
+                select(LeadSignal).where(LeadSignal.lead_reference_id == attempt.lead_reference_id)
+            )
+            enrichment = self.session.scalar(
+                select(BusinessEnrichment)
+                .where(
+                    BusinessEnrichment.lead_reference_id == attempt.lead_reference_id,
+                    BusinessEnrichment.source_provider == attempt.provider,
+                )
+                .order_by(BusinessEnrichment.created_at.desc())
+            )
+            _set_sheet_attr(attempt, "lead", lead)
+            _set_sheet_attr(attempt, "enrichment", enrichment)
+        return self._append_missing(
+            tab_name=ENRICHMENT_LOG_TAB,
+            records=attempts,
+            key_getter=lambda attempt: str(attempt.id),
+            mapper=map_enrichment_attempt_to_log_row,
+            mark_synced=lambda _attempt, _row, _synced_at: None,
+        )
+
+    def _sync_lead_master_rows(self, signals: list[LeadSignal]) -> GoogleSheetsSyncResult:
+        if not self.client.enabled:
+            return GoogleSheetsSyncResult(
+                tab_name=LEAD_MASTER_TAB,
+                enabled=False,
+                attempted=len(signals),
+            )
+        try:
+            existing_ids = self.client.get_column_values(LEAD_MASTER_TAB, "A")
+            existing_map = {value: index + 1 for index, value in enumerate(existing_ids)}
+            pending = [signal for signal in signals if signal.lead_reference_id not in existing_map]
+            updates = [signal for signal in signals if signal.lead_reference_id in existing_map]
+            first_new_row = len(existing_ids) + 1
+            if pending:
+                self.client.append_rows(
+                    LEAD_MASTER_TAB,
+                    [map_lead_signal_to_master_row(signal) for signal in pending],
+                )
+            synced_at = datetime.now(UTC)
+            for offset, signal in enumerate(pending):
+                self._mark_signal_synced(signal, first_new_row + offset, synced_at)
+            for signal in updates:
+                row_number = (
+                    signal.master_sheet_row_number
+                    or existing_map[signal.lead_reference_id]
+                )
+                self.client.update_row(
+                    LEAD_MASTER_TAB,
+                    row_number,
+                    map_lead_signal_to_master_row(signal),
+                )
+                self._mark_signal_synced(signal, row_number, synced_at)
+            if pending or updates:
+                self._log_success(LEAD_MASTER_TAB, len(pending) + len(updates))
+                self.session.commit()
+            return GoogleSheetsSyncResult(
+                tab_name=LEAD_MASTER_TAB,
+                enabled=True,
+                attempted=len(signals),
+                appended=len(pending),
+                updated=len(updates),
+                skipped_duplicates=0,
+                row_numbers={
+                    signal.lead_reference_id: signal.master_sheet_row_number or 0
+                    for signal in [*pending, *updates]
+                },
+            )
+        except Exception as exc:
+            self.session.rollback()
+            self._log_error(LEAD_MASTER_TAB, str(exc))
+            self.session.commit()
+            return GoogleSheetsSyncResult(
+                tab_name=LEAD_MASTER_TAB,
+                enabled=True,
+                attempted=len(signals),
+                error=str(exc),
+            )
 
     def _append_missing(
         self,
@@ -302,6 +397,20 @@ class GoogleSheetsSyncService:
                 select(func.count())
                 .select_from(FormLead)
                 .where(FormLead.exported_to_master_sheet.is_(False))
+            )
+            or 0
+        )
+
+    def _count_unsynced_enrichment_updates(self) -> int:
+        return (
+            self.session.scalar(
+                select(func.count())
+                .select_from(LeadSignal)
+                .where(
+                    LeadSignal.enriched_at.is_not(None),
+                    (LeadSignal.master_sheet_synced_at.is_(None))
+                    | (LeadSignal.master_sheet_synced_at < LeadSignal.enriched_at),
+                )
             )
             or 0
         )

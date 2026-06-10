@@ -22,6 +22,14 @@ def test_health_and_openapi_include_review_and_dashboard_routes() -> None:
     assert "/admin/form-leads/{form_lead_id}/route" in openapi["paths"]
     assert "/admin/sync/google-sheets/all" in openapi["paths"]
     assert "/admin/sync/google-sheets/status" in openapi["paths"]
+    assert "/admin/sync/google-sheets/enrichment-log" in openapi["paths"]
+    assert "/admin/jobs/status" in openapi["paths"]
+    assert "/admin/jobs/recent" in openapi["paths"]
+    assert "/admin/jobs/queues" in openapi["paths"]
+    assert "/admin/jobs/enqueue/demo-leads" in openapi["paths"]
+    assert "/admin/jobs/enqueue/enrichment" in openapi["paths"]
+    assert "/admin/jobs/enqueue/enrichment-high-value" in openapi["paths"]
+    assert "/events/signals" in openapi["paths"]
     assert "/analytics/summary" in openapi["paths"]
 
 
@@ -38,6 +46,13 @@ def test_filtered_signal_statement_compiles_for_postgres() -> None:
         date_to=None,
         status="new",
         has_document_text=True,
+        enrichment_status="success",
+        has_phone=True,
+        has_email=True,
+        has_owner_principal=True,
+        has_website=True,
+        min_enrichment_confidence=70,
+        do_not_contact=False,
     )
 
     compiled = str(statement)
@@ -45,6 +60,10 @@ def test_filtered_signal_statement_compiles_for_postgres() -> None:
     assert "lead_signals" in compiled
     assert "case_documents" in compiled
     assert "score >=" in compiled
+    assert "business_phone IS NOT NULL" in compiled
+    assert "business_email IS NOT NULL" in compiled
+    assert "owner_principal_name IS NOT NULL" in compiled
+    assert "business_website IS NOT NULL" in compiled
 
 
 def test_redact_sensitive_masks_identifiers() -> None:
